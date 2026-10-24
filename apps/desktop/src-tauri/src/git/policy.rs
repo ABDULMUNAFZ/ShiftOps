@@ -308,8 +308,15 @@ mod tests {
 
     #[test]
     fn clone_accepts_only_the_built_vector() {
+        // `Path::is_absolute` is platform-specific: `/work` is absolute on Unix
+        // but not on Windows, so the test destination must differ by platform.
+        #[cfg(windows)]
+        const DEST: &str = "C:\\work\\acme\\api";
+        #[cfg(not(windows))]
+        const DEST: &str = "/work/acme/api";
+
         let url = validate_clone_url("https://github.com/acme/api.git").unwrap();
-        let args = clone_args(&url, Path::new("/work/acme/api"));
+        let args = clone_args(&url, Path::new(DEST));
         validate_clone(&args).unwrap();
         assert!(args.contains(&"--no-recurse-submodules".to_string()));
         assert!(args.contains(&"--template=".to_string()));
@@ -320,12 +327,12 @@ mod tests {
         assert!(validate_clone(&command_args(READONLY_COMMANDS[0])).is_err());
 
         let loopback = validate_clone_url("http://127.0.0.1:9000/acme/api.git").unwrap();
-        let args = clone_args(&loopback, Path::new("/work/acme/api"));
+        let args = clone_args(&loopback, Path::new(DEST));
         assert!(args.iter().any(|a| a == "protocol.http.allow=always"));
         validate_clone(&args).unwrap();
 
         let tampered = |f: &dyn Fn(&mut Vec<String>)| {
-            let mut a = clone_args(&url, Path::new("/work/acme/api"));
+            let mut a = clone_args(&url, Path::new(DEST));
             f(&mut a);
             validate_clone(&a).unwrap_err().code
         };
