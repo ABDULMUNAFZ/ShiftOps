@@ -333,15 +333,15 @@ export default function Home() {
             Run your first campaign today.
           </h2>
           <p className="mt-5 max-w-xl text-lg leading-8 opacity-80">
-            Signed installers are not published yet. Build ShiftOps from source for macOS, Windows or Linux in a few
-            commands.
+            Unsigned pre-release installers for macOS, Windows and Linux are on GitHub Releases, or build ShiftOps from
+            source in a few commands.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link
               href="/download/"
               className="inline-flex h-12 items-center gap-2 rounded-full bg-accent-fg px-6 text-sm font-semibold text-accent transition hover:opacity-90"
             >
-              Build instructions <ArrowRight className="size-4" aria-hidden />
+              Download for Desktop <ArrowRight className="size-4" aria-hidden />
             </Link>
             <Link
               href="/docs/"

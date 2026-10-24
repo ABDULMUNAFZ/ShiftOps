@@ -14,6 +14,7 @@ Every meaningful change, newest first. Each entry is written in the same commit 
   - `pnpm check`: 113 JavaScript tests (website 4); 208 Rust tests passed, 3 ignored; lint, format, Clippy clean. Website build passes.
   - Local release build on macOS x86_64: frontend and Rust compiled in release mode and `ShiftOps.app` was bundled. It is unsigned (`codesign`: "not signed at all"). The local `.dmg` step failed: Finder AppleScript timed out (`-1712`) because this session has no automation permission. CI macOS runners build the DMG.
   - Deployed site checked on GitHub Pages with the `onlyhacks.tech` Host header: every route, `robots.txt`, `sitemap.xml` and the CSS assets return 200, and unknown paths return the custom 404. Rendered at mobile width.
+- Release `v0.1.0`: release run `40142571901` built all four platforms. The pre-release is published at https://github.com/ABDULMUNAFZ/ShiftOps/releases/tag/v0.1.0 with `aarch64`/`x64` `.dmg` and `.app.tar.gz`, `x64-setup.exe`, `x64_en-US.msi`, `amd64.AppImage` and `amd64.deb`. Every installer URL returned 200. The website lists these six installers.
 - Limitations: DNS for `onlyhacks.tech` (Namify, orderbox nameservers) has no records, so the domain does not resolve yet and HTTPS cannot be issued until the records in `docs/RELEASING.md` are added. All installers are unsigned.
 
 ## 2026-10-25T04:32:20+05:30 — Premium website, refreshed desktop UI, brand icons and user manual
