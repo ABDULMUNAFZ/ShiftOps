@@ -44,7 +44,7 @@ ShiftOps is built in six tasks. This table records what exists today.
 | ------------------------------------------------------------------- | ------------------------------------------------------ |
 | 1. Desktop foundation, environment checks, website                  | Complete                                               |
 | 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                                               |
-| 3. Product profile, local repository intelligence, GitHub           | In progress: product profile and documentation         |
+| 3. Product profile, local repository intelligence, GitHub           | In progress: profile and local discovery done          |
 | 4. Campaign planning, dependency intelligence, Devin integration    | Not started. **Devin integration does not exist yet.** |
 | 5. Migration execution, independent verification, Devin repair loop | Not started                                            |
 | 6. End-to-end workflow, packaging, security audit, submission       | Not started                                            |
@@ -76,6 +76,15 @@ docs/             Design notes
 | pnpm    | 10.33.0                                                                                                                       | 10                                   |
 | Rust    | 1.99.1 stable                                                                                                                 | 1.85                                 |
 | OS deps | Xcode Command Line Tools on macOS; see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for Linux and Windows |                                      |
+
+## Using local repository discovery
+
+1. Run `pnpm dev:desktop` and open **Repositories**.
+2. Choose **Open Local Repository** to register one repository, or **Discover Folder** to search a folder. Pick a maximum depth (default 4) and whether to follow symbolic links that stay inside the folder.
+3. Progress streams while ShiftOps searches and reads Git metadata. **Cancel** stops the search.
+4. Review the results (branch, commit, origin, working-tree counts, warnings), select repositories and click **Import**.
+
+Discovery reads the filesystem and runs only a fixed list of read-only Git commands. It never runs repository code, installs dependencies or changes files. Imported repositories start as **untrusted**.
 
 ## Commands
 

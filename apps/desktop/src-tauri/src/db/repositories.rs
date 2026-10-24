@@ -45,6 +45,17 @@ pub struct Repository {
     pub trust_status: TrustStatus,
     pub created_at: String,
     pub updated_at: String,
+    pub root_id: Option<String>,
+    pub git_kind: Option<String>,
+    pub is_detached: bool,
+    /// `None` when working-tree status was not collected.
+    pub is_dirty: Option<bool>,
+    pub staged_count: Option<u32>,
+    pub modified_count: Option<u32>,
+    pub untracked_count: Option<u32>,
+    pub last_commit_at: Option<String>,
+    pub git_collected_at: Option<String>,
+    pub git_warnings: Value,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -76,7 +87,9 @@ pub struct GitState {
 }
 
 const REPO_COLUMNS: &str = "SELECT id, source_type, name, local_path, remote_url, github_host, github_owner, github_repo, \
-    default_branch, current_branch, current_commit, trust_status, created_at, updated_at";
+    default_branch, current_branch, current_commit, trust_status, created_at, updated_at, root_id, git_kind, \
+    is_detached, is_dirty, staged_count, modified_count, untracked_count, last_commit_at, git_collected_at, \
+    git_warnings_json";
 
 fn map_repo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Repository> {
     Ok(Repository {
@@ -94,7 +107,127 @@ fn map_repo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Repository> {
         trust_status: r.get("trust_status")?,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,
+        root_id: r.get("root_id")?,
+        git_kind: r.get("git_kind")?,
+        is_detached: r.get("is_detached")?,
+        is_dirty: r.get("is_dirty")?,
+        staged_count: r.get("staged_count")?,
+        modified_count: r.get("modified_count")?,
+        untracked_count: r.get("untracked_count")?,
+        last_commit_at: r.get("last_commit_at")?,
+        git_collected_at: r.get("git_collected_at")?,
+        git_warnings: json_col(r, "git_warnings_json")?,
     })
+}
+
+/// Everything discovery learnt about one local repository.
+#[derive(Debug, Clone)]
+pub struct LocalRepositoryRecord {
+    pub name: String,
+    pub local_path: String,
+    pub git_kind: crate::git::inspect::GitKind,
+    pub metadata: crate::git::inspect::GitMetadata,
+    pub collected_at: String,
+}
+
+/// Insert a discovered repository (as `untrusted`), or refresh the Git facts
+/// of the one already registered at the same canonical path. Trust status is
+/// never changed by discovery. Returns the repository and whether it was new.
+pub fn record_local_discovery(
+    conn: &Connection,
+    root_id: &str,
+    record: &LocalRepositoryRecord,
+) -> AppResult<(Repository, bool)> {
+    require_text(&record.name, "Repository name", 255)?;
+    let m = &record.metadata;
+    let origin = m.origin.as_ref();
+    let mut github = origin.filter(|o| o.is_github());
+    let wt = m.working_tree.as_ref();
+    let mut warnings = m.warnings.clone();
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT id FROM repositories WHERE local_path = ?1",
+            [&record.local_path],
+            |r| r.get(0),
+        )
+        .optional()?;
+    // One registered repository holds each GitHub identity. Other checkouts
+    // and worktrees of the same GitHub repository keep their remote URL but
+    // are not linked, so the identity stays unique.
+    if let Some(g) = github {
+        let holder: Option<String> = conn
+            .query_row(
+                "SELECT COALESCE(local_path, name) FROM repositories
+                 WHERE github_host = ?1 AND github_owner = ?2 AND github_repo = ?3 AND (?4 IS NULL OR id <> ?4)",
+                params![g.host, g.owner, g.repo, existing],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(holder) = holder {
+            warnings.push(format!(
+                "Not linked to GitHub {}/{}: that repository is already linked to {holder}.",
+                g.owner.as_deref().unwrap_or(""),
+                g.repo.as_deref().unwrap_or("")
+            ));
+            github = None;
+        }
+    }
+    let warnings = serde_json::to_string(&warnings)?;
+    let id = existing.clone().unwrap_or_else(new_id);
+    let now = time_util::now();
+    let values = params![
+        id,
+        record.name,
+        record.local_path,
+        origin.map(|o| o.sanitized_url.clone()),
+        github.and_then(|o| o.host.clone()),
+        github.and_then(|o| o.owner.clone()),
+        github.and_then(|o| o.repo.clone()),
+        m.default_branch,
+        m.current_branch,
+        m.head_commit,
+        root_id,
+        record.git_kind.as_str(),
+        m.detached,
+        wt.map(|w| w.dirty()),
+        wt.map(|w| w.staged),
+        wt.map(|w| w.modified),
+        wt.map(|w| w.untracked),
+        m.last_commit_at,
+        record.collected_at,
+        warnings,
+        now,
+    ];
+    if existing.is_some() {
+        conn.execute(
+            "UPDATE repositories SET name = ?2, remote_url = ?4, github_host = ?5, github_owner = ?6,
+                 github_repo = ?7, default_branch = ?8, current_branch = ?9, current_commit = ?10, root_id = ?11,
+                 git_kind = ?12, is_detached = ?13, is_dirty = ?14, staged_count = ?15, modified_count = ?16,
+                 untracked_count = ?17, last_commit_at = ?18, git_collected_at = ?19, git_warnings_json = ?20,
+                 updated_at = ?21
+             WHERE id = ?1 AND local_path = ?3",
+            values,
+        )?;
+    } else {
+        conn.execute(
+            "INSERT INTO repositories (id, source_type, name, local_path, remote_url, github_host, github_owner,
+                 github_repo, default_branch, current_branch, current_commit, trust_status, root_id, git_kind,
+                 is_detached, is_dirty, staged_count, modified_count, untracked_count, last_commit_at,
+                 git_collected_at, git_warnings_json, created_at, updated_at)
+             VALUES (?1, 'local', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'untrusted', ?11, ?12, ?13, ?14, ?15, ?16,
+                 ?17, ?18, ?19, ?20, ?21, ?21)",
+            values,
+        )?;
+    }
+    Ok((get(conn, &id)?, existing.is_none()))
+}
+
+/// Canonical local paths already registered, for marking discovery results.
+pub fn registered_local_paths(conn: &Connection) -> AppResult<std::collections::HashSet<String>> {
+    let mut stmt =
+        conn.prepare("SELECT local_path FROM repositories WHERE local_path IS NOT NULL")?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 pub fn create(conn: &Connection, new: &NewRepository) -> AppResult<Repository> {

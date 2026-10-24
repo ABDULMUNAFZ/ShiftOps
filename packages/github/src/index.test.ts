@@ -7,6 +7,7 @@ describe("parseGitRemote", () => {
     ["https://github.com/acme/api", { host: "github.com", owner: "acme", name: "api" }],
     ["git@github.com:acme/web-app.git", { host: "github.com", owner: "acme", name: "web-app" }],
     ["ssh://git@github.com/acme/sdk.js.git", { host: "github.com", owner: "acme", name: "sdk.js" }],
+    ["ssh://git@github.com:22/acme/api.git", { host: "github.com", owner: "acme", name: "api" }],
   ])("parses %s", (remote, expected) => {
     expect(parseGitRemote(remote)).toEqual(expected);
   });

@@ -124,3 +124,28 @@ export function useVerificationRuns(params: ListParams) {
     queryFn: () => native.listVerificationRuns(params),
   });
 }
+
+export function useRepositoryRoots() {
+  return useQuery({ queryKey: queryKeys.roots, queryFn: native.listRepositoryRoots });
+}
+
+export function useImportDiscovered() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ discoveryId, paths }: { discoveryId: string; paths: string[] }) =>
+      native.importDiscovered(discoveryId, paths),
+    onSettled: () => invalidateAfter(client, "repositories"),
+  });
+}
+
+export function useRemoveRepositoryRoot() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => native.removeRepositoryRoot(id),
+    onSettled: () => invalidateAfter(client, "repositories"),
+  });
+}
+
+export function useRepositoryBranches(id: string) {
+  return useQuery({ queryKey: queryKeys.repositories.branches(id), queryFn: () => native.listRepositoryBranches(id) });
+}

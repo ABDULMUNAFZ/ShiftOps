@@ -21,7 +21,12 @@ export const queryKeys = {
     entityTypes: ["activity", "entity-types"] as const,
   },
   processes: { active: ["processes", "active"] as const },
-  repositories: { list: (params: ListParams) => ["repositories", "list", params] as const },
+  repositories: {
+    all: ["repositories"] as const,
+    list: (params: ListParams) => ["repositories", "list", params] as const,
+    branches: (id: string) => ["repositories", "branches", id] as const,
+  },
+  roots: ["repository-roots"] as const,
   campaigns: { list: (params: ListParams) => ["campaigns", "list", params] as const },
   agentTasks: { list: (params: ListParams) => ["agent-tasks", "list", params] as const },
   verificationRuns: { list: (params: ListParams) => ["verification-runs", "list", params] as const },

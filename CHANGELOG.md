@@ -2,6 +2,31 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-24T23:15:41+05:30 — Local repository discovery (Task 3, milestone 2)
+
+- Changed:
+  - Migration 5 `repository_roots_and_git_state`: new `repository_roots` table; `repositories` gains `root_id` (SET NULL), Git kind, detached flag, dirty flag, staged/modified/untracked counts, last commit time, collection time and warnings.
+  - Rust `git/` (remote parsing with credential stripping, exact read-only command policy, repository config risk scan, metadata collection) and `discovery/` (filesystem walk, jobs with progress events and cancellation, transactional import).
+  - Execution policy `readonly_git` for discovery only.
+  - Native folder picker via `tauri-plugin-dialog`, called from Rust only.
+  - Eight new commands: `pick_directory`, `start_discovery`, `cancel_discovery`, `get_discovery`, `import_discovered`, `list_repository_roots`, `remove_repository_root`, `list_repository_branches`.
+  - Repositories page rebuilt: Open Local Repository, Discover Folder with depth and symlink options, live progress and Cancel, warnings, review table with selection, import, tracked folders with confirmed removal, and a searchable registered-repository table.
+- Why: Task 3 milestone 2 requires real local discovery with read-only Git, imported repositories starting untrusted, and no file ever deleted.
+- Validation:
+  - `pnpm check` passed: Prettier, typecheck, lint; JS 70 tests (desktop 36, including 6 new discovery UI tests; github 11); Rust 106 passed, 1 ignored; rustfmt and clippy clean.
+  - New Rust tests:
+    - every schema version 1–4 upgrades to 5 without data loss;
+    - walker: nesting, depth, skipped folders, worktree and submodule `.git` files, invalid markers, symlink escape, symlink loop, unreadable folder, entry limit, cancellation;
+    - real temporary Git repositories (per-command `-c user.*`, `GIT_CONFIG_GLOBAL=/dev/null`): branch, commit, origin, dirty counts, worktree, non-GitHub remote, no origin, credential stripping, duplicate import refresh, root removal keeping repositories and files, repository mode, cancellation, and a planted `filter.clean` that is proven never to run;
+    - the git policy rejects mutations and injected options;
+    - an IPC test of the discovery commands.
+  - Launched `pnpm dev:desktop`: the real database upgraded from 4 to 5 in place, with backup `backups/shiftops-v4-20261024T174534Z.db`; existing activity events preserved.
+  - Discovery was not clicked through in the UI by the agent (no accessibility access); the flow is covered by component tests and real-Git Rust tests.
+- Limitations:
+  - A second checkout of an already-linked GitHub repository keeps its remote URL but is not linked (one checkout per GitHub identity, by the unique index).
+  - Git metadata is refreshed only by re-running discovery.
+  - Windows discovery is not exercised by tests (the walker and real-Git tests are Unix-only).
+
 ## 2026-10-24T22:33:06+05:30 — Product profile and submission documents (Task 3, milestone 1)
 
 - Changed:

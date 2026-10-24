@@ -51,6 +51,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "credential_metadata",
         sql: include_str!("sql/0004_credential_metadata.sql"),
     },
+    Migration {
+        version: 5,
+        name: "repository_roots_and_git_state",
+        sql: include_str!("sql/0005_repository_roots_and_git_state.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {
@@ -263,6 +268,7 @@ mod tests {
                 "migration_patterns",
                 "repositories",
                 "repository_dependencies",
+                "repository_roots",
                 "repository_scans",
                 "schema_migrations",
                 "settings",
@@ -304,7 +310,7 @@ mod tests {
         assert_eq!(report.backfilled, [1]);
         assert_eq!(
             report.applied.iter().map(|m| m.version).collect::<Vec<_>>(),
-            [2, 3, 4]
+            (2..=latest_version()).collect::<Vec<_>>()
         );
         let rows: Vec<(String, String, String, String)> = conn
             .prepare("SELECT key, value_json, created_at, updated_at FROM settings ORDER BY key")
@@ -341,6 +347,75 @@ mod tests {
             })
             .unwrap();
         assert_eq!(theme, "\"dark\"");
+    }
+
+    /// Start from every released schema version with representative rows,
+    /// upgrade to the latest, and check nothing was lost.
+    #[test]
+    fn every_schema_version_upgrades_to_latest_without_data_loss() {
+        for from in 1..=latest_version() {
+            let conn = fresh();
+            migrate(&conn, &MIGRATIONS[..from as usize], None).unwrap();
+            assert_eq!(user_version(&conn).unwrap(), from);
+            let settings_column = if from == 1 { "value" } else { "value_json" };
+            let extra = if from == 1 { "" } else { ", created_at" };
+            let extra_val = if from == 1 {
+                ""
+            } else {
+                ", '2026-10-24T10:00:00.000Z'"
+            };
+            conn.execute_batch(&format!(
+                "INSERT INTO settings (key, {settings_column}, updated_at{extra}) VALUES ('theme', '\"dark\"', '2026-10-24T10:00:00.000Z'{extra_val});"
+            ))
+            .unwrap();
+            if from >= 3 {
+                conn.execute_batch(
+                    "INSERT INTO repositories (id, source_type, name, local_path, trust_status, created_at, updated_at)
+                     VALUES ('r1', 'local', 'api', '/work/api', 'trusted', 't', 't');
+                     INSERT INTO activity_events (id, entity_type, event_type, severity, summary, created_at)
+                     VALUES ('a1', 'app', 'x', 'info', 'kept', 't');",
+                )
+                .unwrap();
+            }
+            if from >= 4 {
+                conn.execute_batch(
+                    "INSERT INTO credential_metadata (provider, credential_kind, account, created_at, updated_at)
+                     VALUES ('github', 'github_personal_access_token', 'github:github_personal_access_token', 't', 't');",
+                )
+                .unwrap();
+            }
+
+            let report = migrate(&conn, MIGRATIONS, None).unwrap();
+            assert_eq!(report.to_version, latest_version(), "from {from}");
+            let theme: String = conn
+                .query_row(
+                    "SELECT value_json FROM settings WHERE key = 'theme'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(theme, "\"dark\"", "from {from}");
+            if from >= 3 {
+                let (trust, root): (String, Option<String>) = conn
+                    .query_row(
+                        "SELECT trust_status, root_id FROM repositories WHERE id = 'r1'",
+                        [],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .unwrap();
+                assert_eq!((trust.as_str(), root), ("trusted", None), "from {from}");
+                let kept: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM activity_events", [], |r| r.get(0))
+                    .unwrap();
+                assert_eq!(kept, 1);
+            }
+            if from >= 4 {
+                let n: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM credential_metadata", [], |r| r.get(0))
+                    .unwrap();
+                assert_eq!(n, 1);
+            }
+        }
     }
 
     #[test]

@@ -1,10 +1,10 @@
 import type { Page as DataPage } from "@shiftops/core";
 import { Card, EmptyState, Spinner } from "@shiftops/ui";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { Bot, FolderGit2, ShieldCheck, Workflow } from "lucide-react";
+import { Bot, ShieldCheck, Workflow } from "lucide-react";
 import type { ReactNode } from "react";
 import { ErrorDisplay } from "../components/ErrorDisplay";
-import { useAgentTasks, useCampaigns, useRepositories, useVerificationRuns } from "../lib/queries";
+import { useAgentTasks, useCampaigns, useVerificationRuns } from "../lib/queries";
 import { Page } from "./Page";
 
 /*
@@ -58,30 +58,6 @@ function Listing<T extends { id: string }>({
         ))}
       </tbody>
     </table>
-  );
-}
-
-export function RepositoriesPage() {
-  const query = useRepositories({});
-  return (
-    <Page title="Repositories" description="Local and GitHub repositories that ShiftOps can migrate.">
-      <Card>
-        <Listing
-          query={query}
-          columns={[
-            { header: "Name", cell: (r) => r.name },
-            { header: "Source", cell: (r) => r.sourceType },
-            { header: "Trust", cell: (r) => r.trustStatus },
-          ]}
-          empty={
-            <EmptyState icon={<FolderGit2 />} title="No repositories">
-              Repository discovery (local folders and GitHub organisations) is not implemented in this build. No
-              repositories have been scanned.
-            </EmptyState>
-          }
-        />
-      </Card>
-    </Page>
   );
 }
 

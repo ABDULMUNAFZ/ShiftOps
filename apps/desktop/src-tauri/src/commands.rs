@@ -22,9 +22,14 @@ use crate::db::credentials::{CredentialKind, Provider};
 use crate::db::migrations::{self, AppliedMigration};
 use crate::db::patterns::{self, MigrationPattern};
 use crate::db::repositories::{self, Repository};
+use crate::db::roots::{self, RepositoryRoot};
 use crate::db::settings::{self, ExecutionLimits};
 use crate::db::verification::{self, RunQuery, VerificationRun};
 use crate::db::{ListParams, Page};
+use crate::discovery::{
+    DiscoveryMode, DiscoveryRequest, DiscoveryResult, ImportSummary, TauriDiscoverySink,
+    DEFAULT_MAX_ENTRIES,
+};
 use crate::environment::{self, Report, Status};
 use crate::error::{AppError, AppResult};
 use crate::process::{
@@ -384,4 +389,171 @@ pub fn open_external_url<R: Runtime>(url: String, app: AppHandle<R>) -> AppResul
     app.opener()
         .open_url(url.as_str(), None::<&str>)
         .map_err(|e| AppError::internal(format!("opening URL failed: {e}")))
+}
+
+// ---------------------------------------------------------------- local discovery
+
+/// Native folder picker. Runs in Rust; the web view has no dialog permission.
+#[tauri::command]
+pub async fn pick_directory<R: Runtime>(
+    title: String,
+    app: AppHandle<R>,
+) -> AppResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let title: String = title.chars().take(120).collect();
+    tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title(title)
+            .blocking_pick_folder()
+            .and_then(|p| p.into_path().ok())
+            .map(|p| p.display().to_string())
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("folder picker task failed: {e}")))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartDiscoveryArgs {
+    path: String,
+    mode: DiscoveryMode,
+    max_depth: u32,
+    follow_internal_symlinks: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedDiscovery {
+    discovery_id: String,
+}
+
+#[tauri::command]
+pub async fn start_discovery<R: Runtime>(
+    request: StartDiscoveryArgs,
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> AppResult<StartedDiscovery> {
+    let search = shell_path::search_path().await;
+    let (discovery_id, _handle) = state.discoveries.start(
+        DiscoveryRequest {
+            path: request.path,
+            mode: request.mode,
+            max_depth: request.max_depth,
+            follow_internal_symlinks: request.follow_internal_symlinks,
+            max_entries: DEFAULT_MAX_ENTRIES,
+        },
+        state.db.clone(),
+        search,
+        Arc::new(TauriDiscoverySink(app)),
+    )?;
+    Ok(StartedDiscovery { discovery_id })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelDiscoveryResponse {
+    discovery_id: String,
+    outcome: CancelOutcome,
+}
+
+#[tauri::command]
+pub fn cancel_discovery(
+    discovery_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CancelDiscoveryResponse> {
+    let outcome = if state.discoveries.cancel(&discovery_id) {
+        CancelOutcome::Requested
+    } else {
+        CancelOutcome::NotRunning
+    };
+    Ok(CancelDiscoveryResponse {
+        discovery_id,
+        outcome,
+    })
+}
+
+/// The finished result, or `null` while the discovery is still running.
+#[tauri::command]
+pub fn get_discovery(
+    discovery_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Option<DiscoveryResult>> {
+    state.discoveries.result(&discovery_id)
+}
+
+#[tauri::command]
+pub fn import_discovered(
+    discovery_id: String,
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<ImportSummary> {
+    state.discoveries.import(&state.db, &discovery_id, &paths)
+}
+
+#[tauri::command]
+pub fn list_repository_roots(state: State<'_, AppState>) -> AppResult<Vec<RepositoryRoot>> {
+    state.db.read(roots::list)
+}
+
+/// Forget a root. Repositories stay registered and no file is touched.
+#[tauri::command]
+pub fn remove_repository_root(
+    id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<RepositoryRoot> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Removing a root requires confirmation.",
+        ));
+    }
+    state.db.write(|c| {
+        let root = roots::remove(c, &id)?;
+        activity::record(
+            c,
+            NewEvent::new(
+                "repository_root",
+                "repository_root.removed",
+                Severity::Notice,
+                format!(
+                    "Stopped tracking {} (no files were deleted)",
+                    root.display_name
+                ),
+            )
+            .entity(root.id.clone())
+            .metadata(
+                json!({ "path": root.canonical_path, "repositories": root.repository_count }),
+            ),
+        )?;
+        Ok(root)
+    })
+}
+
+/// Local branches of a registered repository, via read-only `git for-each-ref`.
+#[tauri::command]
+pub async fn list_repository_branches(
+    id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::git::inspect::BranchInfo>> {
+    let repo = state.db.read(|c| repositories::get(c, &id))?;
+    let path = repo
+        .local_path
+        .ok_or_else(|| AppError::validation("This repository has no local checkout."))?;
+    let canonical = crate::discovery::validate_root(&path)?;
+    let runner = crate::process::ProcessRunner::new(
+        crate::process::ExecutionPolicy::readonly_git(vec![canonical.clone()]),
+        None,
+        None,
+    );
+    let search = shell_path::search_path().await;
+    crate::git::inspect::branches(&runner, search, &canonical)
+        .await
+        .map_err(|e| {
+            AppError::new(
+                crate::error::ErrorCode::CommandFailed,
+                "Branches could not be read.",
+            )
+            .with_details(e)
+        })
 }

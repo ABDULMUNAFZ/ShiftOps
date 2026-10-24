@@ -39,11 +39,19 @@ Callers can also register literal secrets, for example a token passed in a child
 ### Process execution
 
 - **No shell, no arbitrary commands**: programs are executed directly with argument arrays. The web view cannot supply a program or arguments. `start_diagnostic` accepts one of four fixed kinds.
-- **Category policy**: only `environment_check` may run. `readonly_git`, `mutating_git`, `dependency_install`, `build`, `test`, `lint`, `docker`, `devin` and `custom` are denied, and so is any command that requires a trusted repository.
+- **Category policy**: the application runner allows only `environment_check`; discovery uses a separate runner that allows only `readonly_git` (see above). `mutating_git`, `dependency_install`, `build`, `test`, `lint`, `docker`, `devin` and `custom` are denied everywhere, and so is any command that requires a trusted repository.
 - **Environment**: cleared, plus an allow-list of inherited variables. `PATH` cannot be overridden.
 - **Working directory**: validated, and must be an existing directory under an allowed root (OS temp or app data).
 - **Bounded runs**: every run has a timeout and an output-size limit. Output past the limit is discarded, and the pipe is drained so the child cannot block.
 - **Cancellation and timeout**: SIGTERM, then SIGKILL, sent to the whole process group (Unix), followed by a final group SIGKILL after exit, so grandchildren do not survive.
+
+### Repository discovery and Git
+
+- Imported repositories are untrusted. Discovery never executes repository code, installs dependencies or writes to a repository.
+- Only `readonly_git` is enabled, and only for the exact argument vectors in `git/policy.rs`, run with the working directory inside the chosen root. Checkout, reset, clean, commit, push, pull, fetch, merge, rebase and config changes are rejected with `COMMAND_NOT_ALLOWED`.
+- Every Git call carries a fixed prefix that disables `core.fsmonitor` and signature verification and avoids optional locks. A repository's own config can still make `git status` run clean/smudge filters, or include other files. ShiftOps reads that config first and skips `status` (with a warning) when such keys are present. A test proves a planted filter never runs.
+- Credentials in remote URLs (`https://token@host/...`) are stripped before the URL is stored or shown.
+- Symbolic links that leave the chosen folder are never followed.
 
 ### Paths and URLs
 

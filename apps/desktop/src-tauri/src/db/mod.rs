@@ -11,6 +11,7 @@ pub mod credentials;
 pub mod migrations;
 pub mod patterns;
 pub mod repositories;
+pub mod roots;
 pub mod settings;
 pub mod verification;
 

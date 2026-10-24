@@ -49,8 +49,134 @@ export const repositorySchema = z.object({
   trustStatus: trustStatusSchema,
   createdAt: timestamp,
   updatedAt: timestamp,
+  rootId: z.string().nullable(),
+  gitKind: z.enum(["standard", "worktree", "submodule", "git_file"]).nullable(),
+  isDetached: z.boolean(),
+  isDirty: z.boolean().nullable(),
+  stagedCount: z.number().int().nonnegative().nullable(),
+  modifiedCount: z.number().int().nonnegative().nullable(),
+  untrackedCount: z.number().int().nonnegative().nullable(),
+  lastCommitAt: z.string().nullable(),
+  gitCollectedAt: timestamp.nullable(),
+  gitWarnings: z.array(z.string()),
 });
 export type Repository = z.infer<typeof repositorySchema>;
+
+// ---------------------------------------------------------------- local discovery
+
+export const repositoryRootSchema = z.object({
+  id: z.string(),
+  canonicalPath: z.string(),
+  displayName: z.string(),
+  rootKind: z.enum(["repository", "directory"]),
+  maxDepth: z.number().int().min(0).max(12),
+  followInternalSymlinks: z.boolean(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  lastDiscoveredAt: timestamp.nullable(),
+  repositoryCount: z.number().int().nonnegative(),
+});
+export type RepositoryRoot = z.infer<typeof repositoryRootSchema>;
+
+export const remoteInfoSchema = z.object({
+  sanitizedUrl: z.string(),
+  host: z.string().nullable(),
+  owner: z.string().nullable(),
+  repo: z.string().nullable(),
+});
+
+export const gitMetadataSchema = z.object({
+  currentBranch: z.string().nullable(),
+  detached: z.boolean(),
+  headCommit: z.string().nullable(),
+  defaultBranch: z.string().nullable(),
+  origin: remoteInfoSchema.nullable(),
+  lastCommitAt: z.string().nullable(),
+  workingTree: z
+    .object({
+      staged: z.number().int().nonnegative(),
+      modified: z.number().int().nonnegative(),
+      untracked: z.number().int().nonnegative(),
+    })
+    .nullable(),
+  warnings: z.array(z.string()),
+});
+export type GitMetadata = z.infer<typeof gitMetadataSchema>;
+
+export const discoveryModeSchema = z.enum(["repository", "directory"]);
+export type DiscoveryMode = z.infer<typeof discoveryModeSchema>;
+
+export const discoveryCandidateSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+  gitKind: z.enum(["standard", "worktree", "submodule", "git_file"]),
+  depth: z.number().int().nonnegative(),
+  alreadyImported: z.boolean(),
+  metadata: gitMetadataSchema,
+});
+export type DiscoveryCandidate = z.infer<typeof discoveryCandidateSchema>;
+
+export const walkWarningSchema = z.object({
+  path: z.string(),
+  code: z.enum(["inaccessible", "symlink_escape", "broken_symlink", "invalid_git_marker", "entry_limit"]),
+  message: z.string(),
+});
+export type WalkWarning = z.infer<typeof walkWarningSchema>;
+
+export const walkStatsSchema = z.object({
+  directoriesVisited: z.number().int().nonnegative(),
+  entriesSeen: z.number().int().nonnegative(),
+  skippedDirectories: z.number().int().nonnegative(),
+  depthLimitedDirectories: z.number().int().nonnegative(),
+});
+
+export const discoveryResultSchema = z.object({
+  discoveryId: z.string(),
+  rootPath: z.string(),
+  mode: discoveryModeSchema,
+  maxDepth: z.number().int(),
+  followInternalSymlinks: z.boolean(),
+  status: z.enum(["running", "completed", "cancelled", "failed"]),
+  candidates: z.array(discoveryCandidateSchema),
+  warnings: z.array(walkWarningSchema),
+  stats: walkStatsSchema,
+  truncated: z.boolean(),
+  startedAt: timestamp,
+  completedAt: timestamp.nullable(),
+  durationMs: z.number().int().nonnegative(),
+  error: appErrorSchema.nullable(),
+});
+export type DiscoveryResult = z.infer<typeof discoveryResultSchema>;
+
+export const discoveryEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("progress"),
+    discoveryId: z.string(),
+    phase: z.enum(["walking", "inspecting"]),
+    currentPath: z.string(),
+    stats: walkStatsSchema,
+    repositoriesFound: z.number().int().nonnegative(),
+    inspected: z.number().int().nonnegative(),
+  }),
+  z.object({ type: z.literal("completed"), result: discoveryResultSchema }),
+]);
+export type DiscoveryEvent = z.infer<typeof discoveryEventSchema>;
+
+export const importSummarySchema = z.object({
+  root: repositoryRootSchema,
+  imported: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  repositoryIds: z.array(z.string()),
+});
+export type ImportSummary = z.infer<typeof importSummarySchema>;
+
+export const branchInfoSchema = z.object({
+  name: z.string(),
+  commit: z.string(),
+  committedAt: z.string().nullable(),
+  upstream: z.string().nullable(),
+});
+export type BranchInfo = z.infer<typeof branchInfoSchema>;
 
 // ---------------------------------------------------------------- campaigns
 

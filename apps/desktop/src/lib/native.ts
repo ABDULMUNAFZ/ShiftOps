@@ -4,15 +4,20 @@ import {
   agentTaskSchema,
   appErrorSchema,
   appInfoSchema,
+  branchInfoSchema,
   campaignSchema,
   credentialMetadataSchema,
   databaseHealthSchema,
+  discoveryEventSchema,
+  discoveryResultSchema,
   environmentReportSchema,
   executionLimitsSchema,
+  importSummarySchema,
   keychainStatusSchema,
   migrationPatternSchema,
   pageSchema,
   processEventSchema,
+  repositoryRootSchema,
   repositorySchema,
   ShiftOpsError,
   verificationRunSchema,
@@ -20,6 +25,8 @@ import {
   type CredentialKind,
   type CredentialProvider,
   type DiagnosticKind,
+  type DiscoveryEvent,
+  type DiscoveryMode,
   type ListParams,
   type ProcessEvent,
 } from "@shiftops/core";
@@ -122,7 +129,33 @@ export const native = {
     call("list_migration_patterns", pageSchema(migrationPatternSchema), { params }),
 
   openExternalUrl: (url: string) => call("open_external_url", nothing, { url }),
+
+  pickDirectory: (title: string) => call("pick_directory", z.string().nullable(), { title }),
+  startDiscovery: (request: { path: string; mode: DiscoveryMode; maxDepth: number; followInternalSymlinks: boolean }) =>
+    call("start_discovery", z.object({ discoveryId: z.string() }), { request }),
+  cancelDiscovery: (discoveryId: string) =>
+    call("cancel_discovery", z.object({ discoveryId: z.string(), outcome: z.enum(["requested", "not_running"]) }), {
+      discoveryId,
+    }),
+  getDiscovery: (discoveryId: string) => call("get_discovery", discoveryResultSchema.nullable(), { discoveryId }),
+  importDiscovered: (discoveryId: string, paths: string[]) =>
+    call("import_discovered", importSummarySchema, { discoveryId, paths }),
+  listRepositoryRoots: () => call("list_repository_roots", z.array(repositoryRootSchema)),
+  removeRepositoryRoot: (id: string) => call("remove_repository_root", repositoryRootSchema, { id, confirm: true }),
+  listRepositoryBranches: (id: string) => call("list_repository_branches", z.array(branchInfoSchema), { id }),
 };
+
+export const DISCOVERY_EVENT = "shiftops://discovery";
+
+/** Subscribe to validated discovery events. Returns an unsubscribe function. */
+export async function onDiscoveryEvent(handler: (event: DiscoveryEvent) => void): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  return listen<unknown>(DISCOVERY_EVENT, ({ payload }) => {
+    const parsed = discoveryEventSchema.safeParse(payload);
+    if (parsed.success) handler(parsed.data);
+    else console.error("Dropped malformed discovery event", z.prettifyError(parsed.error));
+  });
+}
 
 export const PROCESS_EVENT = "shiftops://process";
 

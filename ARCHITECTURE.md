@@ -11,7 +11,7 @@ A **campaign** is one codebase-wide change. It moves through these stages:
 5. **Verify**: ShiftOps re-runs the policy's commands against the agent's branch (`packages/verification`).
 6. **Track**: campaign state is persisted locally and shown per repository.
 
-The persistence for every stage exists (schema version 4). Discovery, planning, delegation and verification logic do not yet exist. See `PROJECT_STATE.md`.
+The persistence for every stage exists (schema version 5). Discovery, planning, delegation and verification logic do not yet exist. See `PROJECT_STATE.md`.
 
 ## Processes and boundaries
 
@@ -122,6 +122,30 @@ IPC uses camelCase throughout, so the contract's `technical_details` and `sugges
 - **Bundled diagnostic**: the long-running diagnostic is the ShiftOps executable itself with `--shiftops-diagnostic-ticker`. `main.rs` handles the flag before Tauri starts.
 
 Events are emitted on `shiftops://process`. `lib/processStore.ts` keeps the last 2000 lines per run. `NativeDiagnostics` renders the last 500.
+
+## Local repository discovery
+
+`discovery/` finds repositories under a folder the user picked (native picker from `tauri-plugin-dialog`, called from Rust; the web view has no dialog permission).
+
+- **Walk** (`discovery/walk.rs`, blocking, off the async threads):
+  - A directory containing `.git` (a directory, or a `gitdir:` file for worktrees and submodules) is recorded and not descended into.
+  - Dependency, build, cache and all dot-directories are skipped.
+  - Depth (0–12) and entry (200,000) limits apply.
+  - Symlinks leaving the root are refused with a warning. Internal symlinks are followed only if the root allows it, with loop protection.
+  - Unreadable folders become warnings without stopping the walk.
+  - Cancellation is checked per directory, and progress is emitted at most every 100 ms.
+- **Inspect** (`git/inspect.rs`): up to 4 repositories at a time, through a per-discovery `ProcessRunner` whose policy (`ExecutionPolicy::readonly_git`) allows only `readonly_git` with the working directory inside the root.
+  - `git/policy.rs` accepts exactly seven argument vectors, each preceded by a fixed safety prefix: `--no-pager --no-optional-locks -c core.fsmonitor=false -c core.untrackedCache=false -c log.showSignature=false -c color.ui=false`.
+  - Git runs with `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0` and `LC_ALL=C`.
+  - Before running `git status`, the repository's own config is read. If it defines clean/smudge/process filters or includes other config files, status is skipped with a warning, because Git would execute them.
+- **Collected per repository:** canonical path, name, kind (standard, worktree, submodule, git file), current branch or detached HEAD, HEAD commit, default branch (`origin/HEAD`), origin remote (credentials stripped; GitHub coordinates parsed from HTTPS, SCP-style and `ssh://` forms), last commit time, staged/modified/untracked counts.
+- **Import** (`import_discovered`) takes the discovery id and the selected paths. It never takes client-supplied metadata. In one transaction it:
+  - upserts the root in `repository_roots`;
+  - inserts new repositories as `untrusted`, or refreshes the Git facts of existing ones without touching trust;
+  - records activity.
+- **GitHub identity:** the identity (host, owner, repo) stays unique. A second checkout or worktree of the same GitHub repository keeps its remote URL, gets no GitHub link, and carries a warning naming the checkout that holds the link.
+- **Removing a root** (`remove_repository_root`, requires `confirm: true`) deletes only that record. Repositories keep their records with `root_id = NULL`. No file is deleted.
+- **Events and results:** events go to `shiftops://discovery`. Results are also retrievable with `get_discovery`, so a discovery that finishes before the UI subscribes is not lost.
 
 ## Validation
 

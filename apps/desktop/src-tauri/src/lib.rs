@@ -1,8 +1,10 @@
 mod commands;
 mod credentials;
 mod db;
+mod discovery;
 mod environment;
 mod error;
+mod git;
 mod logging;
 mod paths;
 mod process;
@@ -32,6 +34,7 @@ pub struct AppState {
     pub runner: ProcessRunner,
     /// Program and arguments for the bundled long-running diagnostic.
     pub diagnostic_program: (PathBuf, Vec<String>),
+    pub discoveries: discovery::Discoveries,
 }
 
 impl AppState {
@@ -106,6 +109,7 @@ impl AppState {
             credentials,
             runner,
             diagnostic_program,
+            discoveries: discovery::Discoveries::default(),
         })
     }
 }
@@ -136,6 +140,14 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::list_verification_runs,
         commands::list_migration_patterns,
         commands::open_external_url,
+        commands::pick_directory,
+        commands::start_discovery,
+        commands::cancel_discovery,
+        commands::get_discovery,
+        commands::import_discovered,
+        commands::list_repository_roots,
+        commands::remove_repository_root,
+        commands::list_repository_branches,
     ])
 }
 
@@ -144,6 +156,8 @@ pub fn run() {
     register_commands(tauri::Builder::default())
         // Rust-side URL opening only; no opener permission is granted to the web view.
         .plugin(tauri_plugin_opener::init())
+        // Rust-side folder picker only; no dialog permission is granted to the web view.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let self_exe = std::env::current_exe()?;
             let state = AppState::open(
@@ -271,15 +285,24 @@ mod ipc_tests {
             info["dataDir"],
             json!(h.dir.path().join("data").display().to_string())
         );
-        assert_eq!(info["schemaVersion"], json!(4));
-        assert_eq!(info["latestSchemaVersion"], json!(4));
+        assert_eq!(
+            info["schemaVersion"],
+            json!(db::migrations::latest_version())
+        );
+        assert_eq!(
+            info["latestSchemaVersion"],
+            json!(db::migrations::latest_version())
+        );
 
         let health = invoke(&h, "get_database_health", json!({})).unwrap();
         assert_eq!(health["upToDate"], true);
         assert_eq!(health["foreignKeysEnabled"], true);
         assert_eq!(health["quickCheck"], "ok");
         assert_eq!(health["journalMode"], "wal");
-        assert_eq!(health["appliedMigrations"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            health["appliedMigrations"].as_array().unwrap().len(),
+            db::migrations::MIGRATIONS.len()
+        );
         assert!(
             health["activityEventCount"].as_u64().unwrap() >= 5,
             "{health}"
@@ -298,7 +321,7 @@ mod ipc_tests {
                 .iter()
                 .filter(|t| **t == "database.migration_applied")
                 .count(),
-            4
+            db::migrations::MIGRATIONS.len()
         );
     }
 
@@ -502,5 +525,80 @@ mod ipc_tests {
         if std::env::var_os("SHIFTOPS_PRINT_ENV_REPORT").is_some() {
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_commands_discover_import_and_forget_roots_over_ipc() {
+        let h = harness();
+        let work = tempfile::tempdir().unwrap();
+        let repo = work.path().join("svc");
+        std::fs::create_dir_all(&repo).unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&repo)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .status()
+            .unwrap();
+        assert!(ok.success());
+
+        let started = invoke(
+            &h,
+            "start_discovery",
+            json!({ "request": { "path": work.path().display().to_string(), "mode": "directory", "maxDepth": 2, "followInternalSymlinks": false } }),
+        )
+        .unwrap();
+        let id = started["discoveryId"].as_str().unwrap().to_string();
+        let mut result = Value::Null;
+        for _ in 0..200 {
+            result = invoke(&h, "get_discovery", json!({ "discoveryId": id })).unwrap();
+            if !result.is_null() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert_eq!(result["status"], "completed", "{result}");
+        let path = result["candidates"][0]["path"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        // A repository with no commits reports no HEAD commit rather than failing.
+        assert!(result["candidates"][0]["metadata"]["headCommit"].is_null());
+
+        let summary = invoke(
+            &h,
+            "import_discovered",
+            json!({ "discoveryId": id, "paths": [path] }),
+        )
+        .unwrap();
+        assert_eq!(summary["imported"], 1);
+        let roots = invoke(&h, "list_repository_roots", json!({})).unwrap();
+        assert_eq!(roots[0]["repositoryCount"], 1);
+        let root_id = roots[0]["id"].as_str().unwrap().to_string();
+
+        let refused = invoke(
+            &h,
+            "remove_repository_root",
+            json!({ "id": root_id, "confirm": false }),
+        )
+        .unwrap_err();
+        assert_eq!(refused["code"], "VALIDATION_FAILED");
+        invoke(
+            &h,
+            "remove_repository_root",
+            json!({ "id": root_id, "confirm": true }),
+        )
+        .unwrap();
+        let repos = invoke(&h, "list_repositories", json!({ "params": {} })).unwrap();
+        assert_eq!(repos["total"], 1, "repository records survive root removal");
+        assert!(repo.exists(), "files are never deleted");
+
+        let bad = invoke(
+            &h,
+            "start_discovery",
+            json!({ "request": { "path": "relative/path", "mode": "directory", "maxDepth": 2, "followInternalSymlinks": false } }),
+        )
+        .unwrap_err();
+        assert_eq!(bad["code"], "VALIDATION_FAILED");
     }
 }

@@ -153,6 +153,16 @@ impl ExecutionPolicy {
         }
     }
 
+    /// Discovery and scanning policy: read-only Git (exact commands from
+    /// `git::policy`) with the working directory inside one of `roots`.
+    /// Everything else stays denied.
+    pub fn readonly_git(roots: Vec<PathBuf>) -> Self {
+        Self {
+            allowed: HashSet::from([CommandCategory::ReadonlyGit]),
+            cwd_roots: PathPolicy::new(roots),
+        }
+    }
+
     #[cfg(test)]
     pub fn allowing(categories: &[CommandCategory], roots: Vec<PathBuf>) -> Self {
         Self {
@@ -179,6 +189,15 @@ impl ExecutionPolicy {
                 "Commands inside repositories are not enabled until repository trust is implemented.",
             )
             .with_context("category", spec.category.as_str()));
+        }
+        if spec.category == CommandCategory::ReadonlyGit {
+            if !matches!(&spec.program, Program::Named(name) if name == "git") {
+                return Err(AppError::new(
+                    ErrorCode::CommandNotAllowed,
+                    "readonly_git commands must run `git`.",
+                ));
+            }
+            crate::git::policy::validate(&spec.args)?;
         }
         for (name, _) in &spec.env {
             let valid = !name.is_empty()
