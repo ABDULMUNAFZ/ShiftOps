@@ -22,7 +22,7 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 
 1. `cd ~/shiftops && git status && git log --oneline -10`, then confirm it matches §0.
 2. Read `AGENTS.md` (hard rules), this file, and the newest entries of `CHANGELOG.md`.
-3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 92 JS tests and 183 Rust tests passing, 3 ignored.
+3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 92 JS tests and 186 Rust tests passing, 3 ignored.
 4. Tasks 1–4 are complete. Do not start Task 5 without its specification.
 
 Environment on the development Mac:
@@ -178,7 +178,7 @@ Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shifto
 ## 7. Tests and verification (latest)
 
 - **JavaScript:** 92 tests — core 21, github 11, devin 2, verification 4, ui 3, website 1, desktop 58.
-- **Rust:** 183 passed, 3 ignored. The ignored ones are manual rehearsals:
+- **Rust:** 186 passed, 3 ignored. The ignored ones are manual rehearsals:
   - `upgrade_rehearsal` with `SHIFTOPS_UPGRADE_DB`;
   - `scan_rehearsal` with `SHIFTOPS_SCAN_PATH`;
   - `devin::status_rehearsal` (needs the Devin CLI; verified: installed 3000.11.205, authenticated).
@@ -201,6 +201,7 @@ Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shifto
 - **Unbuilt data paths:** activity and run logs are never pruned or rotated; credential validation status is not refreshed automatically; agent and verification services exist but nothing creates their records yet.
 - **Scanner limits:** declarative only, with no dependency-tree resolution; YAML and XML are read line-based.
 - **GitHub limits:** one account at a time; OAuth asks for `repo` (GitHub has no read-only equivalent); PR checks are summarised for the first 30 PRs.
+- **Devin prompt check:** `devin::validate_prompt` (in `dispatch_spec` and the `devin_dispatch` policy) rejects empty, whitespace-only, NUL-containing, over-200,000-byte and option-like prompts (first non-whitespace character `-`). Fixed on branch `fix/devin-prompt-option-injection`.
 - **Readiness limits:** the secret scan is a bounded heuristic (paths and rule names only); `Submitted` and the final SHA stay unset until Task 6's human submission flow.
 - **Build size:** the desktop bundle is a single chunk of roughly 717 kB.
 - **Build Log artifact** (claude.ai, pinned) mirrors this file. If they disagree, this file wins.

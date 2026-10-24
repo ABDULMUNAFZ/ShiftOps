@@ -1845,7 +1845,7 @@ pub async fn dispatch_agent_task<R: Runtime>(
         Some(state.log_dir.clone()),
         Some(state.db.clone()),
     );
-    let spec = devin::dispatch_spec(&task.instructions_markdown, &checkout);
+    let spec = devin::dispatch_spec(&task.instructions_markdown, &checkout)?;
     let search = shell_path::search_path().await;
     let started = runner.start(spec, search, Arc::new(TauriSink(app.clone())))?;
     let run_id = started.run_id.clone();
