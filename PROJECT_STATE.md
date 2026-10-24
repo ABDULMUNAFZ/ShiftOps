@@ -274,8 +274,8 @@ The working specification is the owner's "Complete Steps 5 and 6" prompt. Task 5
 
 ## 8f. Domain, hosting and releases (2026-10-25)
 
-- **Website hosting:** GitHub Pages, free, serving the `gh-pages` branch with custom domain `onlyhacks.tech` (Pages API: `build_type: legacy`, source `gh-pages`, `https_enforced: false`). It was deployed and checked with the Host header against `185.199.108.153`. `.github/workflows/website.yml` redeploys from `main`.
-- **Domain:** registered 2026-10-20 at Namify Domains Inc, nameservers `cont603385.*.orderbox-dns.com`, no A/AAAA/CNAME records. The owner must add the records listed in `docs/RELEASING.md`. GitHub then issues the HTTPS certificate; after that, enable _Enforce HTTPS_. Verifying the domain in the GitHub account settings is recommended to prevent takeover.
+- **Website hosting:** GitHub Pages, free, serving the `gh-pages` branch with custom domain `onlyhacks.tech` (Pages API: `build_type: legacy`, source `gh-pages`, `https_enforced: true`). Live at https://onlyhacks.tech. `.github/workflows/website.yml` redeploys from `main`.
+- **Domain:** `onlyhacks.tech` (Namify; nameservers `cont603385.*.orderbox-dns.com`). The owner added the GitHub Pages A, AAAA and `www` CNAME records on 2026-10-25. The Let's Encrypt certificate for `onlyhacks.tech` and `www.onlyhacks.tech` was approved (expires 2027-01-23, renewed by GitHub), and _Enforce HTTPS_ is on. Verified: every route returns 200 over HTTPS with a valid certificate, `http://` and `www` 301-redirect to `https://onlyhacks.tech/`, and unknown paths return 404. Verifying the domain in the GitHub account settings is still recommended.
 - **Vercel:** the CLI token on this machine is invalid, so Vercel was not used.
 - **Releases:** `.github/workflows/release.yml` (tag `v*`), unsigned, draft then pre-release only when all four platform builds succeed. Website links come only from `DESKTOP_RELEASE` in `apps/website/src/release.ts`.
 - **Signing:** none. Apple signing and notarization need a paid Developer Program membership and certificates; Windows signing needs a code-signing certificate. See `docs/RELEASING.md`.
