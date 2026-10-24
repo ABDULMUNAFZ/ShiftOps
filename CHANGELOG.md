@@ -17,6 +17,8 @@ Every meaningful change, newest first. Each entry is written in the same commit 
   - `pnpm check`: 88 JavaScript tests (desktop 54, including trust/removal and Submission Readiness UI); 179 Rust tests passed, 2 ignored; Prettier, types, ESLint, rustfmt and Clippy `-D warnings` clean.
   - Native tests cover deterministic status, redacted secret findings, real-checkout Git collection and record removal preserving files.
   - Website and desktop production builds pass.
+  - Landed as `e1cd62d` plus `7666608` (Windows-only test fix: `Path::is_absolute` rejects the Unix-style destination used in the clone policy test). CI run `40128969708` passed on Linux, macOS and Windows: https://github.com/ABDULMUNAFZ/ShiftOps/actions/runs/40128969708
+  - `pnpm validate:record` reran the full check and wrote `.shiftops/validation.json`; the dev app opened, applied migration 8 to the real database with a backup, and was closed.
 - Limitations:
   - Live GitHub OAuth remains unverified because no real client ID or PAT was supplied.
   - `Submitted` and final SHA remain intentionally unavailable until the human submission flow in Task 6.

@@ -4,18 +4,18 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 
 ## 0. Status at a glance
 
-| Task                                                                  | State                                          | Commits                                                                                               |
-| --------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1. Foundation (shell, environment checks, website)                    | Complete                                       | `cca3cf6`                                                                                             |
-| 2. Persistence, credentials, safe execution, activity                 | Complete                                       | `4701627`, Windows CI fixes `5c6ea42`, `824691f`                                                      |
-| 3. Product profile, local repository intelligence, GitHub integration | **Complete**                                   | `d388ff4`, `0e10fa1`, `43f264b`, `62a1b4b`, `9a9f265` plus the repository-management/readiness commit |
-| 4. Campaign planning, dependency intelligence, Devin integration      | Not started. Devin integration does not exist. |                                                                                                       |
-| 5. Migration execution, verification, Devin repair loop               | Not started                                    |                                                                                                       |
-| 6. End-to-end workflow, packaging, security audit, submission         | Not started                                    |                                                                                                       |
+| Task                                                                  | State                                          | Commits                                                                     |
+| --------------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------- |
+| 1. Foundation (shell, environment checks, website)                    | Complete                                       | `cca3cf6`                                                                   |
+| 2. Persistence, credentials, safe execution, activity                 | Complete                                       | `4701627`, Windows CI fixes `5c6ea42`, `824691f`                            |
+| 3. Product profile, local repository intelligence, GitHub integration | **Complete**                                   | `d388ff4`, `0e10fa1`, `43f264b`, `62a1b4b`, `9a9f265`, `e1cd62d`, `7666608` |
+| 4. Campaign planning, dependency intelligence, Devin integration      | Not started. Devin integration does not exist. |                                                                             |
+| 5. Migration execution, verification, Devin repair loop               | Not started                                    |                                                                             |
+| 6. End-to-end workflow, packaging, security audit, submission         | Not started                                    |                                                                             |
 
 - **Repository:** `https://github.com/ABDULMUNAFZ/ShiftOps` (public). Branch `main` tracks `origin/main`.
-- **CI:** GitHub Actions `ci.yml` runs TypeScript plus Rust on Linux, macOS and Windows. The last confirmed run is recorded in §9; a Windows Clippy failure on `9a9f265` (run `40125030556`, Unix-only test import) is fixed in the repository-management commit.
-- **Database:** schema version **8** (migration 8 adds managed workspaces and clones; the real database upgrades to 8 on the next app launch).
+- **CI:** GitHub Actions `ci.yml` runs TypeScript plus Rust on Linux, macOS and Windows. Run `40128969708` for `7666608` passed all four jobs.
+- **Database:** schema version **8** (migration 8 adds managed workspaces and clones; the real database was upgraded at the post-commit app launch with a v7 backup).
 - **Hackathon:** built for Devin Hacks Kochi 2026. The credit appears only in the README introduction, the website footer, the desktop About page and `SUBMISSION.md`. ShiftOps is independent and not an official Cognition product.
 
 ## 1. How to resume
@@ -144,8 +144,8 @@ Full reasons are in `CHANGELOG.md` and `ARCHITECTURE.md`.
 
 ## 5. Real data on the development Mac
 
-- **Database:** `~/Library/Application Support/dev.shiftops.desktop/shiftops.db`. Schema 7, 36 activity events, 0 repositories, no settings rows (onboarding not yet clicked through). It upgrades to 8 — with a backup — on the next app launch.
-- **Backups:** `backups/shiftops-v1-…`, `-v4-…`, `-v5-…`, `-v6-…`.
+- **Database:** `~/Library/Application Support/dev.shiftops.desktop/shiftops.db`. Schema 8 (upgraded 7 → 8 at the post-commit launch, 36+ activity events), 0 repositories, no settings rows (onboarding not yet clicked through).
+- **Backups:** `backups/shiftops-v1-…`, `-v4-…`, `-v5-…`, `-v6-…`, `-v7-…`.
 - **Logs:** `~/Library/Logs/dev.shiftops.desktop/` (`shiftops.log`, `runs/`).
 - **Keychain:** service `dev.shiftops.desktop`. No real credentials stored by the agent; tests use `dev.shiftops.desktop.test.<uuid>` and clean up.
 - **Incident:** during milestone 4 the agent's still-running dev app applied migration 7 to this database mid-development. The schema matches the committed SQL and a v6 backup exists. The extra restarts added 15 `database.opened` and 15 environment-check events. AGENTS.md rule 11 now forbids this.
@@ -230,6 +230,12 @@ All three follow-up items are now done: the milestone was committed as `9a9f265`
 
 ## 9. Exact next step
 
-Task 3 is complete pending final CI confirmation on the repository-management/readiness commit. Recorded state after the final push: commit SHA, CI run URL and result, and the desktop launch check are noted in the latest `CHANGELOG.md` entry.
+Task 3 is complete. Final recorded state:
+
+- Commits: `e1cd62d` (repository management and Submission Readiness) and `7666608` (Windows test fix).
+- CI: run `40128969708` passed TypeScript plus Rust on Linux, macOS and Windows — https://github.com/ABDULMUNAFZ/ShiftOps/actions/runs/40128969708
+- `pnpm check`: 88 JavaScript tests, 179 Rust tests (2 ignored); website and desktop builds pass.
+- `pnpm validate:record` wrote `.shiftops/validation.json` (gitignored, mode 0600).
+- The dev app launched, migrated the real database 7 → 8 with a backup, and was closed.
 
 The next work is **Task 4** (campaign planning, dependency intelligence, Devin integration), whose specification has not been provided. Do not start it without the specification.
