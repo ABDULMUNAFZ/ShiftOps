@@ -1,77 +1,82 @@
 import type { CheckId } from "@shiftops/core";
-import { Badge, Button, Card, CardHeader } from "@shiftops/ui";
-import type { ReactNode } from "react";
-import { CredentialBadge } from "../features/integrations/CredentialBadge";
-import { useEnvironment } from "../lib/queries";
+import { Badge, Card, CardHeader, Spinner } from "@shiftops/ui";
+import { CredentialSecurity } from "../features/credentials/CredentialSecurity";
+import { useCredentials, useEnvironment } from "../lib/queries";
 import { DefinitionList, Page } from "./Page";
 
-function ToolStatus({ id }: { id: CheckId }) {
+function ToolStatus({ id, missing }: { id: CheckId; missing: string }) {
   const env = useEnvironment();
   const check = env.data?.checks.find((c) => c.id === id);
-  if (!check) return <span className="text-muted">{env.isPending ? "checking…" : "not checked"}</span>;
+  if (env.isPending) return <Spinner className="size-3" />;
+  if (!check) return <span className="text-muted">not checked</span>;
   return check.status === "available" ? (
     <span>
-      {check.version ?? "available"} <span className="text-muted">({check.path})</span>
+      Detected {check.version ?? ""} <span className="text-muted">({check.path})</span>
     </span>
   ) : (
-    <span className="text-warn">{check.detail}</span>
+    <span className="text-warn">{missing}</span>
   );
 }
 
-function IntegrationCard({
-  name,
+function CredentialState({
   provider,
-  description,
-  rows,
+  kinds,
+  missing,
 }: {
-  name: string;
   provider: "github" | "devin";
-  description: string;
-  rows: { term: string; value: ReactNode }[];
+  kinds: string[];
+  missing: string;
 }) {
-  return (
-    <Card>
-      <CardHeader
-        title={
-          <span className="flex items-center gap-2">
-            {name} <CredentialBadge provider={provider} />
-          </span>
-        }
-        description={description}
-        actions={
-          <Button size="sm" disabled title="Connecting accounts is not implemented in this build">
-            Connect
-          </Button>
-        }
-      />
-      <DefinitionList rows={rows} />
-    </Card>
-  );
+  const credentials = useCredentials();
+  if (credentials.isPending) return <Spinner className="size-3" />;
+  if (credentials.isError) return <Badge tone="danger">Keychain error</Badge>;
+  const stored = credentials.data.filter((c) => c.provider === provider && kinds.includes(c.kind) && c.exists);
+  return stored.length > 0 ? <Badge tone="ok">Credential stored · not validated</Badge> : <Badge>{missing}</Badge>;
 }
 
 export function IntegrationsPage() {
   return (
-    <Page title="Integrations" description="Accounts and tools ShiftOps delegates to. Secrets live only in the OS keychain.">
-      <IntegrationCard
-        name="GitHub"
-        provider="github"
-        description="Repository discovery, branches and pull requests."
-        rows={[
-          { term: "Keychain entry", value: "dev.shiftops.desktop / github" },
-          { term: "Local git", value: <ToolStatus id="git" /> },
-          { term: "Account connection", value: <Badge>Not implemented in this build</Badge> },
-        ]}
-      />
-      <IntegrationCard
-        name="Devin"
-        provider="devin"
-        description="Repository-level implementation sessions."
-        rows={[
-          { term: "Keychain entry", value: "dev.shiftops.desktop / devin" },
-          { term: "Devin CLI", value: <ToolStatus id="devin" /> },
-          { term: "Account connection", value: <Badge>Not implemented in this build</Badge> },
-        ]}
-      />
+    <Page
+      title="Integrations"
+      description="Accounts and tools ShiftOps delegates to. No integration makes network calls in this build."
+    >
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader
+            title="GitHub"
+            description="Repository discovery, branches and pull requests."
+            actions={
+              <CredentialState
+                provider="github"
+                kinds={["github_personal_access_token", "github_oauth_token"]}
+                missing="Not configured"
+              />
+            }
+          />
+          <DefinitionList
+            rows={[
+              { term: "Local git", value: <ToolStatus id="git" missing="Git not detected" /> },
+              { term: "API access", value: "Not implemented in this build; a stored token is not used yet." },
+            ]}
+          />
+        </Card>
+        <Card>
+          <CardHeader
+            title="Devin"
+            description="Repository-level implementation sessions."
+            actions={
+              <CredentialState provider="devin" kinds={["devin_api_token"]} missing="API credential not stored" />
+            }
+          />
+          <DefinitionList
+            rows={[
+              { term: "Devin CLI", value: <ToolStatus id="devin" missing="Not detected" /> },
+              { term: "Sessions", value: "Not implemented in this build; ShiftOps is not connected to Devin." },
+            ]}
+          />
+        </Card>
+      </div>
+      <CredentialSecurity />
     </Page>
   );
 }

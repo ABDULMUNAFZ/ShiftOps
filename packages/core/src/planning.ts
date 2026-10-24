@@ -12,9 +12,7 @@ export interface DependencyEdge {
   to: string;
 }
 
-export type WavePlan =
-  | { ok: true; waves: string[][] }
-  | { ok: false; cycle: string[] };
+export type WavePlan = { ok: true; waves: string[][] } | { ok: false; cycle: string[] };
 
 export function planWaves(repositories: readonly string[], edges: readonly DependencyEdge[]): WavePlan {
   const nodes = [...new Set(repositories)].sort();

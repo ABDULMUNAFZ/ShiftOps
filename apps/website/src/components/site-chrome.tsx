@@ -18,7 +18,11 @@ export function SiteHeader() {
         </Link>
         <nav className="flex items-center gap-1 text-sm">
           {LINKS.map((l) => (
-            <Link key={l.href} href={l.href} className="rounded-md px-2.5 py-1.5 text-muted hover:bg-surface-2 hover:text-fg">
+            <Link
+              key={l.href}
+              href={l.href}
+              className="rounded-md px-2.5 py-1.5 text-muted hover:bg-surface-2 hover:text-fg"
+            >
               {l.label}
             </Link>
           ))}

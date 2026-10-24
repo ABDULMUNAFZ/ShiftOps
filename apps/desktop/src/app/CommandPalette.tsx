@@ -1,7 +1,7 @@
 import type { Theme } from "@shiftops/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { Monitor, Moon, PanelLeft, RefreshCw, Sun } from "lucide-react";
+import { History, Monitor, Moon, PanelLeft, RefreshCw, Sun } from "lucide-react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { queryKeys, useSetSetting } from "../lib/queries";
@@ -11,6 +11,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onToggleSidebar: () => void;
+  onOpenActivity: () => void;
 }
 
 const THEMES: { value: Theme; label: string; icon: ReactNode }[] = [
@@ -24,7 +25,7 @@ const itemClass =
 const groupClass =
   "[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-group-heading]]:text-muted";
 
-export function CommandPalette({ open, onOpenChange, onToggleSidebar }: Props) {
+export function CommandPalette({ open, onOpenChange, onToggleSidebar, onOpenActivity }: Props) {
   const navigate = useNavigate();
   const client = useQueryClient();
   const setSetting = useSetSetting();
@@ -50,7 +51,12 @@ export function CommandPalette({ open, onOpenChange, onToggleSidebar }: Props) {
         <Command.Empty className="px-3 py-6 text-center text-sm text-muted">No matching command.</Command.Empty>
         <Command.Group heading="Go to" className={groupClass}>
           {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
-            <Command.Item key={path} value={`go ${label}`} onSelect={run(() => void navigate(path))} className={itemClass}>
+            <Command.Item
+              key={path}
+              value={`go ${label}`}
+              onSelect={run(() => void navigate(path))}
+              className={itemClass}
+            >
               <Icon /> {label}
             </Command.Item>
           ))}
@@ -68,6 +74,11 @@ export function CommandPalette({ open, onOpenChange, onToggleSidebar }: Props) {
           ))}
           <Command.Item value="toggle sidebar" onSelect={run(onToggleSidebar)} className={itemClass}>
             <PanelLeft /> Toggle sidebar
+          </Command.Item>
+        </Command.Group>
+        <Command.Group heading="Activity" className={groupClass}>
+          <Command.Item value="open activity centre" onSelect={run(onOpenActivity)} className={itemClass}>
+            <History /> Open Activity Centre
           </Command.Item>
         </Command.Group>
         <Command.Group heading="Environment" className={groupClass}>

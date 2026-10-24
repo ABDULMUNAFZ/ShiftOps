@@ -1,18 +1,19 @@
 import {
   parseSetting,
   settingDefaults,
+  type ActivityQuery,
+  type CredentialKind,
+  type CredentialProvider,
+  type ListParams,
   type SettingKey,
   type SettingValue,
 } from "@shiftops/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateAfter } from "./invalidation";
 import { native } from "./native";
+import { queryKeys } from "./queryKeys";
 
-export const queryKeys = {
-  settings: ["settings"] as const,
-  environment: ["environment"] as const,
-  appInfo: ["app-info"] as const,
-  credential: (provider: "github" | "devin") => ["credential", provider] as const,
-};
+export { queryKeys } from "./queryKeys";
 
 export type Settings = { [K in SettingKey]: SettingValue<K> };
 
@@ -41,18 +42,85 @@ export function useSetSetting() {
     onError: (_error, _vars, context) => {
       if (context?.previous) client.setQueryData(queryKeys.settings, context.previous);
     },
-    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.settings }),
+    onSettled: (_data, _error, { key }) =>
+      invalidateAfter(client, key === "onboardingCompletedAt" ? "onboarding" : "settings"),
   });
 }
 
 export function useEnvironment() {
-  return useQuery({ queryKey: queryKeys.environment, queryFn: native.environment, staleTime: Infinity });
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: queryKeys.environment,
+    queryFn: async () => {
+      const report = await native.environment();
+      void invalidateAfter(client, "environment");
+      return report;
+    },
+    staleTime: Infinity,
+  });
 }
 
 export function useAppInfo() {
   return useQuery({ queryKey: queryKeys.appInfo, queryFn: native.appInfo, staleTime: Infinity });
 }
 
-export function useCredentialStatus(provider: "github" | "devin") {
-  return useQuery({ queryKey: queryKeys.credential(provider), queryFn: () => native.credentialStatus(provider) });
+export function useDatabaseHealth() {
+  return useQuery({ queryKey: queryKeys.health.database, queryFn: native.databaseHealth });
+}
+
+export function useKeychainStatus() {
+  return useQuery({ queryKey: queryKeys.health.keychain, queryFn: native.keychainStatus, staleTime: 60_000 });
+}
+
+export function useCredentials() {
+  return useQuery({ queryKey: queryKeys.credentials, queryFn: native.listCredentials });
+}
+
+export function useStoreCredential() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ provider, kind, secret }: { provider: CredentialProvider; kind: CredentialKind; secret: string }) =>
+      native.storeCredential(provider, kind, secret),
+    onSettled: () => invalidateAfter(client, "credentials"),
+  });
+}
+
+export function useDeleteCredential() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ provider, kind }: { provider: CredentialProvider; kind: CredentialKind }) =>
+      native.deleteCredential(provider, kind),
+    onSettled: () => invalidateAfter(client, "credentials"),
+  });
+}
+
+export function useActivity(query: ActivityQuery) {
+  return useQuery({
+    queryKey: queryKeys.activity.list(query),
+    queryFn: () => native.listActivity(query),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useActivityEntityTypes() {
+  return useQuery({ queryKey: queryKeys.activity.entityTypes, queryFn: native.activityEntityTypes });
+}
+
+export function useRepositories(params: ListParams) {
+  return useQuery({ queryKey: queryKeys.repositories.list(params), queryFn: () => native.listRepositories(params) });
+}
+
+export function useCampaigns(params: ListParams) {
+  return useQuery({ queryKey: queryKeys.campaigns.list(params), queryFn: () => native.listCampaigns(params) });
+}
+
+export function useAgentTasks(params: ListParams) {
+  return useQuery({ queryKey: queryKeys.agentTasks.list(params), queryFn: () => native.listAgentTasks(params) });
+}
+
+export function useVerificationRuns(params: ListParams) {
+  return useQuery({
+    queryKey: queryKeys.verificationRuns.list(params),
+    queryFn: () => native.listVerificationRuns(params),
+  });
 }

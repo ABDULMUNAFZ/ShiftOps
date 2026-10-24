@@ -3,9 +3,9 @@
 Minimal repositories used by automated tests only. They are never shown in the
 application UI and are not sample product data.
 
-| Fixture        | Purpose                                                        |
-| -------------- | -------------------------------------------------------------- |
-| `node-library` | A package with no internal dependencies.                       |
+| Fixture        | Purpose                                                         |
+| -------------- | --------------------------------------------------------------- |
+| `node-library` | A package with no internal dependencies.                        |
 | `node-service` | Depends on `@fixture/node-library`, to test migration ordering. |
 
 The fixtures are stored as plain directories, not nested Git repositories.

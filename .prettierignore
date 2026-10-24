@@ -1,0 +1,10 @@
+pnpm-lock.yaml
+**/node_modules
+**/dist
+**/out
+**/.next
+**/target
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/icons
+apps/website/next-env.d.ts
+apps/website/AGENTS.md

@@ -1,11 +1,18 @@
-import { brand, ErrorState, Logo, Spinner } from "@shiftops/ui";
+import { brand, Logo, Spinner } from "@shiftops/ui";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { createHashRouter, RouterProvider } from "react-router";
+import { ErrorBoundary, RouteError } from "../components/ErrorBoundary";
+import { ErrorDisplay } from "../components/ErrorDisplay";
 import { FirstRun } from "../features/onboarding/FirstRun";
+import { invalidateAfter } from "../lib/invalidation";
+import { onProcessEvent } from "../lib/native";
+import { processStore } from "../lib/processStore";
 import { useSettings } from "../lib/queries";
 import { useApplyTheme } from "../lib/theme";
+import { AgentRunsPage, CampaignsPage, RepositoriesPage, VerificationPage } from "../pages/DataPages";
 import { IntegrationsPage } from "../pages/IntegrationsPage";
 import { OverviewPage } from "../pages/OverviewPage";
-import { AgentRunsPage, CampaignsPage, RepositoriesPage, VerificationPage } from "../pages/PlaceholderPages";
 import { SettingsPage } from "../pages/SettingsPage";
 import { Shell } from "./Shell";
 
@@ -15,6 +22,7 @@ const router = createHashRouter([
   {
     path: "/",
     element: <Shell />,
+    errorElement: <RouteError />,
     children: [
       { index: true, element: <OverviewPage /> },
       { path: "repositories", element: <RepositoriesPage /> },
@@ -27,9 +35,30 @@ const router = createHashRouter([
   },
 ]);
 
+/** Feed native process events into the store and refresh dependent queries. */
+function useProcessEvents() {
+  const client = useQueryClient();
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void onProcessEvent((event) => {
+      processStore.apply(event);
+      if (event.type === "started" || event.type === "completed") void invalidateAfter(client, "process");
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [client]);
+}
+
 export function App() {
   const settings = useSettings();
   useApplyTheme(settings.data?.theme);
+  useProcessEvents();
 
   if (settings.isPending) {
     return (
@@ -46,11 +75,14 @@ export function App() {
           <Logo />
           <span className="font-semibold">{brand.name}</span>
         </div>
-        <ErrorState title="Local application state could not be loaded" error={settings.error} />
+        <ErrorDisplay title="Local application state could not be loaded" error={settings.error} />
       </div>
     );
   }
 
-  if (settings.data.onboardingCompletedAt === null) return <FirstRun />;
-  return <RouterProvider router={router} />;
+  return (
+    <ErrorBoundary title="ShiftOps hit an unexpected error">
+      {settings.data.onboardingCompletedAt === null ? <FirstRun /> : <RouterProvider router={router} />}
+    </ErrorBoundary>
+  );
 }

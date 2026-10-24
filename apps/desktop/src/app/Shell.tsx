@@ -1,8 +1,9 @@
 import { brand, Button, cn, Kbd, Logo } from "@shiftops/ui";
-import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { History, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { useSetSetting, useSettings } from "../lib/queries";
+import { ActivityCentre } from "../features/activity/ActivityCentre";
+import { useDatabaseHealth, useSetSetting, useSettings } from "../lib/queries";
 import { CommandPalette } from "./CommandPalette";
 import { modKey, NAV_ITEMS } from "./navigation";
 
@@ -11,6 +12,9 @@ export function Shell() {
   const setSetting = useSetSetting();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const health = useDatabaseHealth();
+  const closeActivity = useCallback(() => setActivityOpen(false), []);
   const collapsed = settings.data?.sidebarCollapsed ?? false;
 
   const toggleSidebar = useCallback(
@@ -25,6 +29,9 @@ export function Shell() {
       if (key === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
+      } else if (key === "j") {
+        event.preventDefault();
+        setActivityOpen((open) => !open);
       } else if (key === "b") {
         event.preventDefault();
         toggleSidebar();
@@ -49,7 +56,9 @@ export function Shell() {
         )}
         aria-label="Primary"
       >
-        <div className={cn("flex h-12 items-center gap-2 border-b border-border", collapsed ? "justify-center" : "px-4")}>
+        <div
+          className={cn("flex h-12 items-center gap-2 border-b border-border", collapsed ? "justify-center" : "px-4")}
+        >
           <Logo />
           {collapsed ? null : <span className="text-sm font-semibold tracking-tight">{brand.name}</span>}
         </div>
@@ -100,7 +109,17 @@ export function Shell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-end border-b border-border px-4">
+        <header className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-border px-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setActivityOpen(true)}
+            aria-label="Open Activity Centre"
+            title={`Activity Centre (${modKey}J)`}
+          >
+            <History /> Activity
+            {health.data ? <Kbd className="tabular-nums">{health.data.activityEventCount}</Kbd> : null}
+          </Button>
           <Button
             variant="secondary"
             size="sm"
@@ -119,7 +138,13 @@ export function Shell() {
         </main>
       </div>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onToggleSidebar={toggleSidebar} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onToggleSidebar={toggleSidebar}
+        onOpenActivity={() => setActivityOpen(true)}
+      />
+      <ActivityCentre open={activityOpen} onClose={closeActivity} />
     </div>
   );
 }

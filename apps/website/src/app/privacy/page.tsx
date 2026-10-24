@@ -16,8 +16,8 @@ export default function Privacy() {
       <h2>What leaves your machine</h2>
       <p>
         ShiftOps contacts third parties only for features you connect. When those features are enabled, requests go
-        directly from your machine to GitHub and to Devin under your own accounts and their respective terms. The current
-        build does not connect to either.
+        directly from your machine to GitHub and to Devin under your own accounts and their respective terms. The
+        current build does not connect to either.
       </p>
 
       <h2>Telemetry</h2>
@@ -25,8 +25,8 @@ export default function Privacy() {
 
       <h2>This website</h2>
       <p>
-        This site is static. It sets no cookies. Your theme choice is saved in your browser&apos;s local storage and never
-        sent anywhere.
+        This site is static. It sets no cookies. Your theme choice is saved in your browser&apos;s local storage and
+        never sent anywhere.
       </p>
     </DocPage>
   );

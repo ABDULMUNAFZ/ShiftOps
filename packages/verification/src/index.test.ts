@@ -23,7 +23,11 @@ describe("evaluatePolicy", () => {
   });
 
   it("fails on a required non-zero exit or timeout", () => {
-    const result = evaluatePolicy(policy, [ok("install"), { ...ok("test"), timedOut: true, exitCode: null }, ok("lint")]);
+    const result = evaluatePolicy(policy, [
+      ok("install"),
+      { ...ok("test"), timedOut: true, exitCode: null },
+      ok("lint"),
+    ]);
     expect(result.verdict).toBe("failed");
     expect(result.failedRequired).toEqual(["test"]);
   });

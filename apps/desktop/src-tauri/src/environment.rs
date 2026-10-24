@@ -3,12 +3,14 @@
 //! check that cannot run reports `unavailable` or `error` with the reason.
 
 use std::path::Path;
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::keychain;
+use crate::credentials::CredentialStore;
+use crate::process::{
+    CommandCategory, CommandSpec, ExecutionPolicy, ProcessRunner, Program, RunStatus,
+};
 use crate::shell_path::{self, SearchPath};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
@@ -43,7 +45,7 @@ pub struct Report {
     pub checks: Vec<Check>,
 }
 
-pub async fn run_all(data_dir: &Path) -> Report {
+pub async fn run_all(data_dir: &Path, credentials: CredentialStore) -> Report {
     let search = shell_path::search_path().await;
     let (git, node, pnpm, npm, yarn, docker, devin) = tokio::join!(
         tool(search, "git", "Git", &["--version"]),
@@ -56,10 +58,10 @@ pub async fn run_all(data_dir: &Path) -> Report {
     );
     let os = os_check(search).await;
     let data = data_dir_check(data_dir);
-    let keychain = keychain_check().await;
+    let keychain = keychain_check(credentials).await;
 
     Report {
-        collected_at: now_rfc3339(),
+        collected_at: crate::time_util::now(),
         checks: vec![
             os, data, git, node, pnpm, npm, yarn, docker, devin, keychain,
         ],
@@ -73,30 +75,43 @@ struct Output {
     stderr: String,
 }
 
+/// Run one probe through the shared process runner: argument array, cleared
+/// environment, neutral working directory (the OS temp dir, so Corepack shims
+/// are unaffected by a nearby package.json), timeout and output limit.
 async fn exec(
     search: &SearchPath,
     exe: &Path,
     args: &[&str],
     timeout: Duration,
 ) -> Result<Output, String> {
-    let mut cmd = tokio::process::Command::new(exe);
-    // Neutral working directory: tools such as Corepack-managed yarn change
-    // behaviour based on the nearest package.json.
-    cmd.args(args)
-        .current_dir(std::env::temp_dir())
-        .env("PATH", search.joined())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    match tokio::time::timeout(timeout, cmd.output()).await {
-        Err(_) => Err(format!("timed out after {}s", timeout.as_secs())),
-        Ok(Err(e)) => Err(format!("failed to start: {e}")),
-        Ok(Ok(out)) => Ok(Output {
-            success: out.status.success(),
-            code: out.status.code(),
-            stdout: String::from_utf8_lossy(&out.stdout).trim().to_string(),
-            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+    let program = if exe.is_absolute() {
+        Program::Path(exe.to_path_buf())
+    } else {
+        Program::Named(exe.display().to_string())
+    };
+    let mut spec = CommandSpec::new(
+        format!("{} {}", exe.display(), args.join(" ")),
+        CommandCategory::EnvironmentCheck,
+        program,
+        args,
+    );
+    spec.timeout = timeout;
+    spec.max_output_bytes = 64 * 1024;
+    spec.record_activity = false;
+    let runner = ProcessRunner::new(ExecutionPolicy::step2(std::env::temp_dir()), None, None);
+    match runner.run_captured(spec, search).await {
+        Err(e) => Err(format!(
+            "failed to start: {}",
+            e.technical_details.unwrap_or(e.message)
+        )),
+        Ok(r) if r.status == RunStatus::TimedOut => {
+            Err(format!("timed out after {}s", timeout.as_secs()))
+        }
+        Ok(r) => Ok(Output {
+            success: r.status == RunStatus::Succeeded,
+            code: r.exit_code,
+            stdout: r.stdout.trim().to_string(),
+            stderr: r.stderr.trim().to_string(),
         }),
     }
 }
@@ -297,28 +312,32 @@ fn data_dir_check(dir: &Path) -> Check {
     }
 }
 
-async fn keychain_check() -> Check {
+async fn keychain_check(store: CredentialStore) -> Check {
     let started = Instant::now();
     // Keychain APIs block; keep them off the async worker threads.
-    let result = tokio::task::spawn_blocking(keychain::probe)
-        .await
-        .unwrap_or_else(|e| Err(format!("probe task failed: {e}")));
-    let (status, version, detail) = match result {
-        Ok(backend) => (
+    let probe = tokio::task::spawn_blocking(move || store.probe()).await;
+    let (status, detail) = match probe {
+        Ok(s) if s.available => (
             Status::Available,
-            None,
             format!(
-                "{backend}: wrote, read back and deleted a probe entry under service {}.",
-                keychain::SERVICE
+                "{}: wrote, read back and deleted a probe entry under service {}.",
+                s.backend, s.service
             ),
         ),
-        Err(e) => (Status::Unavailable, None, e),
+        Ok(s) => (
+            Status::Unavailable,
+            s.error.map_or_else(
+                || "unavailable".to_string(),
+                |e| e.technical_details.unwrap_or(e.message),
+            ),
+        ),
+        Err(e) => (Status::Error, format!("probe task failed: {e}")),
     };
     Check {
         id: "keychain",
         label: "OS keychain",
         status,
-        version,
+        version: None,
         detail,
         path: None,
         command: None,
@@ -349,12 +368,6 @@ fn truncate(text: &str) -> String {
 
 fn elapsed_ms(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
-}
-
-fn now_rfc3339() -> String {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

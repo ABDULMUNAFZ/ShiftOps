@@ -14,8 +14,7 @@ export function FirstRun() {
   const setSetting = useSetSetting();
   const summary = env.data ? summarizeReport(env.data) : null;
 
-  const finish = () =>
-    setSetting.mutate({ key: "onboardingCompletedAt", value: new Date().toISOString() });
+  const finish = () => setSetting.mutate({ key: "onboardingCompletedAt", value: new Date().toISOString() });
 
   return (
     <main className="h-full overflow-y-auto">
@@ -29,8 +28,8 @@ export function FirstRun() {
         </header>
 
         <p className="max-w-2xl text-sm text-muted">
-          ShiftOps runs Git, package managers and agents on this machine. These checks show exactly what is
-          installed. Nothing is uploaded; results stay in the local application.
+          ShiftOps runs Git, package managers and agents on this machine. These checks show exactly what is installed.
+          Nothing is uploaded; results stay in the local application.
         </p>
 
         <EnvironmentPanel />

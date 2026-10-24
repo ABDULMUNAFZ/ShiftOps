@@ -1,13 +1,4 @@
-import {
-  Bot,
-  FolderGit2,
-  LayoutDashboard,
-  type LucideIcon,
-  Plug,
-  Settings,
-  ShieldCheck,
-  Workflow,
-} from "lucide-react";
+import { Bot, FolderGit2, LayoutDashboard, type LucideIcon, Plug, Settings, ShieldCheck, Workflow } from "lucide-react";
 
 export interface NavItem {
   path: string;

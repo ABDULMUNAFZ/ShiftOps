@@ -1,13 +1,24 @@
-import { preferencesFormSchema, type PreferencesForm, type Theme } from "@shiftops/core";
+import {
+  executionFormSchema,
+  preferencesFormSchema,
+  type ExecutionForm,
+  type PreferencesForm,
+  type Theme,
+} from "@shiftops/core";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button, Card, CardHeader, ErrorState, Spinner } from "@shiftops/ui";
+import { Button, Card, CardHeader, Spinner } from "@shiftops/ui";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
+import { ErrorDisplay } from "../components/ErrorDisplay";
+import { CredentialSecurity } from "../features/credentials/CredentialSecurity";
+import { NativeDiagnostics } from "../features/diagnostics/NativeDiagnostics";
 import { EnvironmentPanel } from "../features/environment/EnvironmentPanel";
+import { DatabaseHealthCard } from "../features/health/DatabaseHealthCard";
+import { invalidateAfter } from "../lib/invalidation";
 import { native } from "../lib/native";
-import { queryKeys, type Settings, useAppInfo, useSettings } from "../lib/queries";
+import { useAppInfo, useSettings, type Settings } from "../lib/queries";
 import { DefinitionList, Page } from "./Page";
-import { useQueryClient, useMutation } from "@tanstack/react-query";
 
 const THEME_OPTIONS: { value: Theme; label: string }[] = [
   { value: "system", label: "System" },
@@ -32,7 +43,7 @@ function PreferencesCard({ settings }: { settings: Settings }) {
       await native.setSetting("theme", values.theme);
       await native.setSetting("sidebarCollapsed", values.sidebarCollapsed);
     },
-    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.settings }),
+    onSettled: () => invalidateAfter(client, "settings"),
   });
 
   return (
@@ -61,49 +72,132 @@ function PreferencesCard({ settings }: { settings: Settings }) {
           <Button type="submit" variant="primary" disabled={!form.formState.isDirty || save.isPending}>
             {save.isPending ? "Saving…" : "Save preferences"}
           </Button>
-          {save.isError ? <span className="text-sm text-danger">{save.error.message}</span> : null}
           {save.isSuccess && !form.formState.isDirty ? <span className="text-sm text-muted">Saved.</span> : null}
         </div>
+        {save.isError ? <ErrorDisplay title="Preferences not saved" error={save.error} /> : null}
       </form>
+    </Card>
+  );
+}
+
+function ExecutionCard({ settings }: { settings: Settings }) {
+  const client = useQueryClient();
+  const current = {
+    timeoutSeconds: settings["execution.defaultTimeoutSeconds"],
+    maxOutputKib: Math.round(settings["execution.maxOutputBytes"] / 1024),
+  };
+  const form = useForm<ExecutionForm>({ resolver: zodResolver(executionFormSchema), defaultValues: current });
+
+  useEffect(() => {
+    form.reset({ timeoutSeconds: current.timeoutSeconds, maxOutputKib: current.maxOutputKib });
+  }, [form, current.timeoutSeconds, current.maxOutputKib]);
+
+  const save = useMutation({
+    mutationFn: async (values: ExecutionForm) => {
+      await native.setSetting("execution.defaultTimeoutSeconds", values.timeoutSeconds);
+      await native.setSetting("execution.maxOutputBytes", values.maxOutputKib * 1024);
+    },
+    onSettled: () => invalidateAfter(client, "settings"),
+  });
+  const errors = form.formState.errors;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Command execution"
+        description="Applied to every command ShiftOps runs. Commands are stopped at the timeout; output beyond the limit is discarded with a marker."
+      />
+      <form className="grid gap-4 p-4 sm:grid-cols-2" onSubmit={form.handleSubmit((v) => save.mutate(v))} noValidate>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Default timeout (seconds)</span>
+          <input
+            type="number"
+            min={1}
+            max={3600}
+            className="h-8 w-full rounded-md border border-border bg-surface px-2"
+            aria-invalid={errors.timeoutSeconds ? true : undefined}
+            {...form.register("timeoutSeconds", { valueAsNumber: true })}
+          />
+          {errors.timeoutSeconds ? <span className="text-xs text-danger">{errors.timeoutSeconds.message}</span> : null}
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Output limit (KiB)</span>
+          <input
+            type="number"
+            min={4}
+            max={16384}
+            className="h-8 w-full rounded-md border border-border bg-surface px-2"
+            aria-invalid={errors.maxOutputKib ? true : undefined}
+            {...form.register("maxOutputKib", { valueAsNumber: true })}
+          />
+          {errors.maxOutputKib ? <span className="text-xs text-danger">{errors.maxOutputKib.message}</span> : null}
+        </label>
+        <div className="flex items-center gap-3 sm:col-span-2">
+          <Button type="submit" variant="primary" disabled={!form.formState.isDirty || save.isPending}>
+            {save.isPending ? "Saving…" : "Save limits"}
+          </Button>
+        </div>
+        {save.isError ? (
+          <div className="sm:col-span-2">
+            <ErrorDisplay title="Limits not saved" error={save.error} />
+          </div>
+        ) : null}
+      </form>
+    </Card>
+  );
+}
+
+function StorageCard() {
+  const info = useAppInfo();
+  return (
+    <Card>
+      <CardHeader title="Storage" description="All application state lives on this machine." />
+      {info.data ? (
+        <DefinitionList
+          rows={[
+            { term: "Application data", value: info.data.dataDir },
+            { term: "Database", value: info.data.databasePath },
+            { term: "Log directory", value: info.data.logDir },
+            { term: "Schema version", value: `${info.data.schemaVersion} (latest ${info.data.latestSchemaVersion})` },
+            { term: "App version", value: info.data.version },
+          ]}
+        />
+      ) : info.isError ? (
+        <div className="p-4">
+          <ErrorDisplay title="Application info unavailable" error={info.error} />
+        </div>
+      ) : (
+        <div className="p-4">
+          <Spinner />
+        </div>
+      )}
     </Card>
   );
 }
 
 export function SettingsPage() {
   const settings = useSettings();
-  const info = useAppInfo();
 
   return (
-    <Page title="Settings" description="Appearance, local storage and workstation environment.">
+    <Page title="Settings" description="Appearance, execution limits, storage, credentials and native diagnostics.">
       {settings.data ? (
-        <PreferencesCard settings={settings.data} />
+        <div className="grid gap-4 xl:grid-cols-2">
+          <PreferencesCard settings={settings.data} />
+          <ExecutionCard settings={settings.data} />
+        </div>
       ) : settings.isError ? (
-        <ErrorState title="Settings could not be loaded" error={settings.error} />
+        <ErrorDisplay title="Settings could not be loaded" error={settings.error} />
       ) : (
         <Spinner />
       )}
 
-      <Card>
-        <CardHeader title="Storage" description="All application state lives on this machine." />
-        {info.data ? (
-          <DefinitionList
-            rows={[
-              { term: "Application data", value: info.data.dataDir },
-              { term: "Database", value: info.data.databasePath },
-              { term: "Schema version", value: info.data.schemaVersion },
-              { term: "App version", value: info.data.version },
-            ]}
-          />
-        ) : info.isError ? (
-          <div className="p-4">
-            <ErrorState title="Application info unavailable" error={info.error} />
-          </div>
-        ) : (
-          <div className="p-4">
-            <Spinner />
-          </div>
-        )}
-      </Card>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <StorageCard />
+        <DatabaseHealthCard detailed />
+      </div>
+
+      <CredentialSecurity />
+      <NativeDiagnostics />
 
       <section id="environment">
         <EnvironmentPanel />

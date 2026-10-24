@@ -24,7 +24,19 @@ export default function Docs() {
             <td>Available</td>
           </tr>
           <tr>
-            <td>Local settings (SQLite)</td>
+            <td>Local database (SQLite, versioned migrations with automatic backup)</td>
+            <td>Available</td>
+          </tr>
+          <tr>
+            <td>Credential storage in the OS keychain</td>
+            <td>Available</td>
+          </tr>
+          <tr>
+            <td>Native diagnostics with streaming output and cancellation</td>
+            <td>Available</td>
+          </tr>
+          <tr>
+            <td>Activity Centre (persisted audit log)</td>
             <td>Available</td>
           </tr>
           <tr>
@@ -43,7 +55,10 @@ export default function Docs() {
       </table>
 
       <h2 id="build">Build from source</h2>
-      <p>Requirements: Node.js 22.22 or newer, pnpm 10, a stable Rust toolchain and the Tauri 2 system prerequisites for your OS.</p>
+      <p>
+        Requirements: Node.js 22.22 or newer, pnpm 10, a stable Rust toolchain and the Tauri 2 system prerequisites for
+        your OS.
+      </p>
       <pre>
         <code>{`git clone <repository-url> shiftops
 cd shiftops
@@ -109,6 +124,9 @@ pnpm dev:desktop`}</code>
         </li>
         <li>
           <code>⌘B</code> / <code>Ctrl+B</code>: collapse or expand the sidebar
+        </li>
+        <li>
+          <code>⌘J</code> / <code>Ctrl+J</code>: open the Activity Centre
         </li>
       </ul>
     </DocPage>

@@ -1,6 +1,7 @@
 import { summarizeReport } from "@shiftops/core";
-import { Button, Card, CardHeader, ErrorState, Spinner } from "@shiftops/ui";
+import { Button, Card, CardHeader, Spinner } from "@shiftops/ui";
 import { RefreshCw } from "lucide-react";
+import { ErrorDisplay } from "../../components/ErrorDisplay";
 import { useEnvironment } from "../../lib/queries";
 import { EnvironmentCheckList } from "./EnvironmentChecks";
 
@@ -30,7 +31,7 @@ export function EnvironmentPanel({ className }: { className?: string }) {
         </div>
       ) : env.isError ? (
         <div className="p-4">
-          <ErrorState title="Environment checks could not run" error={env.error} />
+          <ErrorDisplay title="Environment checks could not run" error={env.error} />
         </div>
       ) : (
         <EnvironmentCheckList report={env.data} />

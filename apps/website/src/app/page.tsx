@@ -32,11 +32,13 @@ export default function Home() {
   return (
     <>
       <section className="py-20 sm:py-28">
-        <p className="mb-4 font-mono text-xs uppercase tracking-widest text-accent">Codebase-wide change, run as a campaign</p>
+        <p className="mb-4 font-mono text-xs uppercase tracking-widest text-accent">
+          Codebase-wide change, run as a campaign
+        </p>
         <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">{brand.tagline}</h1>
         <p className="mt-6 max-w-2xl text-lg text-muted">
-          {brand.name} is a desktop app for engineering organisations. Define one change, find every affected repository,
-          plan the migration order, delegate repository-level work to Devin and verify each result yourself.
+          {brand.name} is a desktop app for engineering organisations. Define one change, find every affected
+          repository, plan the migration order, delegate repository-level work to Devin and verify each result yourself.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link href="/download/" className={buttonVariants({ variant: "primary", size: "lg" })}>
