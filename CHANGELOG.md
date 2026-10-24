@@ -2,6 +2,24 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T02:54:47+05:30 — Readiness tolerates a missing origin/main
+
+- Changed: Submission Readiness skips the `origin/main..HEAD` ahead count when `refs/remotes/origin/main` or `HEAD` does not resolve, reports the count as unknown and adds the reason "origin/main is not available locally". Before, `collect` failed with `fatal: ambiguous argument 'refs/remotes/origin/main..HEAD'`.
+- Why: found by the first pull-request CI run (`40133583291`). A pull-request checkout has no `origin/main`, nor does a clone that never fetched `main`. The readiness view must report that as evidence, not error.
+- Validation: new test `missing_origin_main_is_reported_not_an_error` runs against a real repository without an origin. `pnpm check`: 92 JavaScript tests; 187 Rust tests passed, 3 ignored; lint, format and Clippy clean.
+
+## 2026-10-25T02:45:33+05:30 — Reject option-like Devin prompts
+
+- Changed:
+  - `devin::validate_prompt` rejects empty and whitespace-only prompts, prompts whose first non-whitespace character is `-` (for example `-p`, `--help`, `  --version`), prompts containing NUL and prompts over 200,000 bytes. Hyphens elsewhere (`follow-up`, `AI-powered`, `-5 degrees`) are accepted.
+  - `validate_args` (the execution-policy gate every Devin spawn passes) applies the same check to the dispatch vector; `dispatch_spec` now returns `AppResult` and validates before building the command. `dispatch_agent_task` propagates the structured error.
+  - Confirmation, approved-task, trusted-repository, `--sandbox` and `--permission-mode smart` controls are unchanged.
+- Why: the prompt was the only free argument after `-p`; a value starting with `-` could be parsed by the CLI as an option instead of the prompt.
+- Validation:
+  - New regression tests cover `-p` and `--help` as prompts, dash-prefixed prompts after leading whitespace, empty and whitespace-only prompts, NUL and oversize prompts, hyphenated prose, and generated ShiftOps instructions (including a campaign named `-leading-dash-campaign` and an objective of `--help`). Each rejected value is checked against `validate_prompt`, `validate_args`, `dispatch_spec` and the `devin_dispatch` policy with a hand-built spec.
+  - `pnpm check`: 92 JavaScript tests; 186 Rust tests passed, 3 ignored; Prettier, types, ESLint, rustfmt and Clippy `-D warnings` clean.
+  - Website and desktop production builds pass.
+
 ## 2026-10-25T02:29:57+05:30 — Campaigns, rollout planning and approval-gated Devin delegation (Task 4)
 
 - Changed:

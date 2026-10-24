@@ -33,6 +33,38 @@ const DISPATCH_FLAGS: &[&str] = &[
     "false",
 ];
 
+/// Largest prompt accepted as one argument; matches the stored-instruction
+/// limit and stays well below the platform argument-size limits.
+const MAX_PROMPT_BYTES: usize = 200_000;
+
+/// Reject a prompt the CLI could parse as something other than the value of
+/// `-p`: empty or whitespace-only text, a first non-whitespace character of
+/// `-` (an option such as `--help` or `-p`), NUL bytes, or oversize text.
+/// Hyphens anywhere after the first meaningful character are fine.
+pub fn validate_prompt(prompt: &str) -> AppResult<()> {
+    let deny = |why: &str| {
+        Err(AppError::new(
+            ErrorCode::CommandNotAllowed,
+            format!("Devin prompt not permitted: {why}."),
+        )
+        .with_context("promptBytes", prompt.len().to_string()))
+    };
+    let meaningful = prompt.trim_start();
+    if meaningful.is_empty() {
+        return deny("the prompt is empty");
+    }
+    if meaningful.starts_with('-') {
+        return deny("the prompt must not begin with '-', which the CLI would read as an option");
+    }
+    if prompt.contains('\0') {
+        return deny("the prompt contains a NUL byte");
+    }
+    if prompt.len() > MAX_PROMPT_BYTES {
+        return deny("the prompt is too long");
+    }
+    Ok(())
+}
+
 /// Build the exact `devin` argument vector for a dispatch.
 pub fn dispatch_args(prompt: &str) -> Vec<String> {
     let mut args = vec!["-p".to_string(), prompt.to_string()];
@@ -55,15 +87,14 @@ pub fn validate_args(args: &[String]) -> AppResult<()> {
     {
         return Ok(());
     }
-    let flags_ok = args.len() == 2 + DISPATCH_FLAGS.len()
+    let shape_ok = args.len() == 2 + DISPATCH_FLAGS.len()
         && args[0] == "-p"
-        && !args[1].is_empty()
         && args[2..]
             .iter()
             .map(String::as_str)
             .eq(DISPATCH_FLAGS.iter().copied());
-    if flags_ok {
-        return Ok(());
+    if shape_ok {
+        return validate_prompt(&args[1]);
     }
     deny("only version/auth-status/doctor or the documented dispatch vector may run")
 }
@@ -202,8 +233,10 @@ pub fn build_instructions(ctx: &TaskContext) -> String {
 
 /// Dispatch spec for a task. `cwd` is the repository checkout and trust is
 /// `TrustedRepository`; the command layer verifies the repository's trust
-/// flag before building this.
-pub fn dispatch_spec(prompt: &str, checkout: &Path) -> CommandSpec {
+/// flag before building this. The prompt is validated here and again by the
+/// execution policy when the runner starts the process.
+pub fn dispatch_spec(prompt: &str, checkout: &Path) -> AppResult<CommandSpec> {
+    validate_prompt(prompt)?;
     let mut spec = CommandSpec::new(
         "devin task",
         CommandCategory::Devin,
@@ -215,7 +248,7 @@ pub fn dispatch_spec(prompt: &str, checkout: &Path) -> CommandSpec {
     spec.cwd = Some(checkout.to_path_buf());
     spec.timeout = Duration::from_secs(2 * 60 * 60);
     spec.max_output_bytes = 4 * 1024 * 1024;
-    spec
+    Ok(spec)
 }
 
 #[cfg(test)]
@@ -261,16 +294,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let checkout = std::fs::canonicalize(dir.path()).unwrap();
         let policy = ExecutionPolicy::devin_dispatch(checkout.clone());
-        policy.check(&dispatch_spec("goal", &checkout)).unwrap();
+        policy
+            .check(&dispatch_spec("goal", &checkout).unwrap())
+            .unwrap();
 
-        let mut sh = dispatch_spec("goal", &checkout);
+        let mut sh = dispatch_spec("goal", &checkout).unwrap();
         sh.program = Program::Named("sh".into());
         assert_eq!(
             policy.check(&sh).unwrap_err().code,
             ErrorCode::CommandNotAllowed
         );
 
-        let mut extra = dispatch_spec("goal", &checkout);
+        let mut extra = dispatch_spec("goal", &checkout).unwrap();
         extra.args.push("--permission-mode".into());
         extra.args.push("dangerous".into());
         assert_eq!(
@@ -279,12 +314,106 @@ mod tests {
         );
 
         // A non-Devin category stays denied under the Devin policy.
-        let mut git = dispatch_spec("goal", &checkout);
+        let mut git = dispatch_spec("goal", &checkout).unwrap();
         git.category = CommandCategory::MutatingGit;
         assert_eq!(
             policy.check(&git).unwrap_err().code,
             ErrorCode::CommandNotAllowed
         );
+    }
+
+    fn dispatch_vector(prompt: &str) -> Vec<String> {
+        let mut a = v(&["-p", prompt]);
+        a.extend(DISPATCH_FLAGS.iter().map(|s| (*s).to_string()));
+        a
+    }
+
+    #[test]
+    fn option_like_prompts_are_rejected_everywhere() {
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = std::fs::canonicalize(dir.path()).unwrap();
+        let policy = ExecutionPolicy::devin_dispatch(checkout.clone());
+        for bad in [
+            "-p",
+            "--help",
+            "--permission-mode=dangerous",
+            "-",
+            "--",
+            "   -p",
+            "\t--help",
+            "\n\n- list item first",
+            " \r\n --version",
+            "",
+            "   ",
+            "\t\n ",
+            "goal\0--dangerous",
+        ] {
+            assert_eq!(
+                validate_prompt(bad).unwrap_err().code,
+                ErrorCode::CommandNotAllowed,
+                "validate_prompt {bad:?}"
+            );
+            // Hand-built vector: the policy (the runner's only gate) refuses it.
+            assert_eq!(
+                validate_args(&dispatch_vector(bad)).unwrap_err().code,
+                ErrorCode::CommandNotAllowed,
+                "validate_args {bad:?}"
+            );
+            // The constructor refuses it before a spec exists.
+            assert!(
+                dispatch_spec(bad, &checkout).is_err(),
+                "dispatch_spec {bad:?}"
+            );
+            // A spec built some other way is still refused by the policy.
+            let mut spec = dispatch_spec("goal", &checkout).unwrap();
+            spec.args = dispatch_vector(bad);
+            assert_eq!(
+                policy.check(&spec).unwrap_err().code,
+                ErrorCode::CommandNotAllowed,
+                "policy {bad:?}"
+            );
+        }
+        assert!(validate_prompt(&"x".repeat(MAX_PROMPT_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn prompts_with_inner_hyphens_are_accepted() {
+        for ok in [
+            "Do the follow-up work",
+            "Ship the AI-powered planner",
+            "Lower the threshold to -5 degrees",
+            "Use --sandbox semantics described in the docs",
+            "  Upgrade Node.js 18 to Node.js 22 - carefully",
+            "x",
+        ] {
+            validate_prompt(ok).unwrap();
+            validate_args(&dispatch_args(ok)).unwrap();
+        }
+    }
+
+    #[test]
+    fn generated_shiftops_instructions_are_valid_prompts() {
+        let ctx = TaskContext {
+            campaign_name: "-leading-dash-campaign",
+            objective: "--help",
+            migration_type: "runtime_upgrade",
+            repository_name: "-p",
+            local_path: "/work/x",
+            github: None,
+            current_branch: None,
+            evidence: &["node=18.x (package.json/engines/node)".into()],
+            verification_commands: &["pnpm run test".into()],
+            constraints: &[],
+        };
+        let prompt = build_instructions(&ctx);
+        assert!(prompt.starts_with("# ShiftOps task"));
+        validate_prompt(&prompt).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = std::fs::canonicalize(dir.path()).unwrap();
+        let spec = dispatch_spec(&prompt, &checkout).unwrap();
+        ExecutionPolicy::devin_dispatch(checkout)
+            .check(&spec)
+            .unwrap();
     }
 
     /// Manual: probes the real local Devin CLI (read-only `version` and
