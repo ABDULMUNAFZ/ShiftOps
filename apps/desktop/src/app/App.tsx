@@ -10,6 +10,7 @@ import { onProcessEvent } from "../lib/native";
 import { processStore } from "../lib/processStore";
 import { useSettings } from "../lib/queries";
 import { useApplyTheme } from "../lib/theme";
+import { AboutPage } from "../pages/AboutPage";
 import { AgentRunsPage, CampaignsPage, RepositoriesPage, VerificationPage } from "../pages/DataPages";
 import { IntegrationsPage } from "../pages/IntegrationsPage";
 import { OverviewPage } from "../pages/OverviewPage";
@@ -31,6 +32,7 @@ const router = createHashRouter([
       { path: "verification", element: <VerificationPage /> },
       { path: "integrations", element: <IntegrationsPage /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "about", element: <AboutPage /> },
     ],
   },
 ]);

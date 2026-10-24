@@ -1,10 +1,15 @@
 # Project state
 
-Last updated: 2026-10-24.
+Last updated: 2026-10-24 (IST). ShiftOps is built in six tasks.
 
-- **Step 1** (foundation) is complete and committed as `cca3cf6 chore: establish ShiftOps foundation`.
-- **Step 2** (persistence, credentials, process execution, activity) is complete in the working tree. It is **not committed**.
-- **Step 3** has **not** been started.
+- **Task 1** (foundation) is complete: commit `cca3cf6`.
+- **Task 2** (persistence, credentials, process execution, activity) is complete: commit `4701627`, followed by the Windows CI fix `5c6ea42`.
+- **Task 3** (product profile, local repository intelligence, GitHub integration) is **in progress**.
+  - Done: milestone 1, product profile and documentation (`README.md`, `CHANGELOG.md`, `AI_USAGE.md`, `SUBMISSION.md`, desktop About page, website footer).
+  - Not started: repository discovery, intelligence scanner, GitHub connection, repository management. Their specifications have not been received in full yet.
+- **Tasks 4–6** are not started. Devin integration does not exist.
+
+Remote: `https://github.com/ABDULMUNAFZ/ShiftOps.git`. `main` tracks `origin/main`. CI runs on GitHub Actions (Linux, macOS, Windows). Sections below were written at the end of Task 2; the Task 3 additions are in `CHANGELOG.md`.
 
 ## 1. Product architecture
 

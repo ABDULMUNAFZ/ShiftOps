@@ -37,9 +37,17 @@ export function SiteFooter() {
   return (
     <footer className="mt-24 border-t border-border">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-sm text-muted sm:px-6">
-        <span>
-          {brand.name}: {brand.tagline}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span>
+            {brand.name}: {brand.tagline}
+          </span>
+          <span className="font-mono text-xs">
+            {brand.event} · Independent project, not affiliated with Cognition ·{" "}
+            <a href={brand.repositoryUrl} className="underline underline-offset-2 hover:text-fg">
+              Source on GitHub
+            </a>
+          </span>
+        </div>
         <span className="flex gap-4">
           {LINKS.map((l) => (
             <Link key={l.href} href={l.href} className="hover:text-fg">

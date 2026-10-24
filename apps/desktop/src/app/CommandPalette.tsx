@@ -1,7 +1,7 @@
 import type { Theme } from "@shiftops/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { History, Monitor, Moon, PanelLeft, RefreshCw, Sun } from "lucide-react";
+import { History, Info, Monitor, Moon, PanelLeft, RefreshCw, Sun } from "lucide-react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { queryKeys, useSetSetting } from "../lib/queries";
@@ -74,6 +74,11 @@ export function CommandPalette({ open, onOpenChange, onToggleSidebar, onOpenActi
           ))}
           <Command.Item value="toggle sidebar" onSelect={run(onToggleSidebar)} className={itemClass}>
             <PanelLeft /> Toggle sidebar
+          </Command.Item>
+        </Command.Group>
+        <Command.Group heading="Help" className={groupClass}>
+          <Command.Item value="about shiftops" onSelect={run(() => void navigate("/about"))} className={itemClass}>
+            <Info /> About ShiftOps
           </Command.Item>
         </Command.Group>
         <Command.Group heading="Activity" className={groupClass}>

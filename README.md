@@ -2,9 +2,54 @@
 
 **Define the change once. Ship it everywhere.**
 
-ShiftOps is a desktop application for engineering organisations. You define one codebase-wide change, ShiftOps discovers every affected repository, plans the migration order, delegates repository-level implementation to Devin, verifies each result independently and tracks the whole campaign.
+ShiftOps plans, coordinates, and verifies code migrations across every repository from one place.
 
-> **Status:** early development. Step 2 is complete: versioned SQLite persistence (schema 4), OS keychain credential storage, a policy-checked native process runner, and a persisted Activity Centre. Repository discovery, planning, delegation and verification are not implemented yet. See [PROJECT_STATE.md](PROJECT_STATE.md).
+`Built for Devin Hacks Kochi 2026`
+
+Repository: https://github.com/ABDULMUNAFZ/ShiftOps
+
+[![CI](https://github.com/ABDULMUNAFZ/ShiftOps/actions/workflows/ci.yml/badge.svg)](https://github.com/ABDULMUNAFZ/ShiftOps/actions/workflows/ci.yml)
+
+ShiftOps is an independent project built for Devin Hacks Kochi 2026. It is not an official Cognition product.
+
+## Problem
+
+Engineering teams repeat the same change across many repositories: runtime upgrades, dependency replacements, vulnerability remediation and platform standardisation. Each repository is handled separately. Ordering mistakes break consumers, progress is tracked in spreadsheets, and "done" often means an agent or engineer said so.
+
+## Solution
+
+ShiftOps treats all repositories as one connected engineering system. It discovers affected projects, analyses their relationships, plans the correct change order, prepares repository-specific work for Devin and independently verifies every result.
+
+```text
+ShiftOps
+- Discovers affected repositories
+- Understands dependencies and risk
+- Plans migration waves
+- Prepares repository-specific Devin tasks
+- Independently verifies results
+- Tracks the complete transformation
+
+Devin
+- Understands an individual repository
+- Implements the requested code changes
+- Repairs build and test failures
+- Produces a branch or pull request
+```
+
+## Status
+
+ShiftOps is built in six tasks. This table records what exists today.
+
+| Task                                                                | State                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------ |
+| 1. Desktop foundation, environment checks, website                  | Complete                                               |
+| 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                                               |
+| 3. Product profile, local repository intelligence, GitHub           | In progress: product profile and documentation         |
+| 4. Campaign planning, dependency intelligence, Devin integration    | Not started. **Devin integration does not exist yet.** |
+| 5. Migration execution, independent verification, Devin repair loop | Not started                                            |
+| 6. End-to-end workflow, packaging, security audit, submission       | Not started                                            |
+
+Details, decisions and test results: [PROJECT_STATE.md](PROJECT_STATE.md). Change history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository layout
 
@@ -13,7 +58,7 @@ apps/
   desktop/        Tauri 2 + React desktop app (Rust backend in src-tauri/)
   website/        Next.js static site: landing, docs, security, privacy, download
 packages/
-  core/           Domain schemas (Zod), settings model, migration wave planner
+  core/           Domain and error contracts (Zod), settings model, migration wave planner
   ui/             Shared design tokens and React components
   github/         GitHub provider contract and remote URL parsing
   devin/          Devin provider contract and session schema
@@ -30,7 +75,7 @@ docs/             Design notes
 | Node.js | 26.7.0                                                                                                                        | 22.22.0 (required by React Router 8) |
 | pnpm    | 10.33.0                                                                                                                       | 10                                   |
 | Rust    | 1.99.1 stable                                                                                                                 | 1.85                                 |
-| OS deps | Xcode Command Line Tools on macOS; see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for Linux and Windows |
+| OS deps | Xcode Command Line Tools on macOS; see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for Linux and Windows |                                      |
 
 ## Commands
 
@@ -79,3 +124,6 @@ SHIFTOPS_UPGRADE_DB=/path/to/copy.db cargo test --manifest-path apps/desktop/src
 - [CONTRIBUTING.md](CONTRIBUTING.md): workflow and standards
 - [AGENTS.md](AGENTS.md): rules for AI coding agents working in this repository
 - [PROJECT_STATE.md](PROJECT_STATE.md): what is done, what is next, and why
+- [CHANGELOG.md](CHANGELOG.md): dated record of every meaningful change
+- [AI_USAGE.md](AI_USAGE.md): which AI tools contributed what
+- [SUBMISSION.md](SUBMISSION.md): hackathon submission details

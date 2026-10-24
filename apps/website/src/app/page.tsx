@@ -37,8 +37,8 @@ export default function Home() {
         </p>
         <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">{brand.tagline}</h1>
         <p className="mt-6 max-w-2xl text-lg text-muted">
-          {brand.name} is a desktop app for engineering organisations. Define one change, find every affected
-          repository, plan the migration order, delegate repository-level work to Devin and verify each result yourself.
+          {brand.description} Define one change, find every affected repository, plan the order, hand repository work to
+          Devin and verify each result yourself.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link href="/download/" className={buttonVariants({ variant: "primary", size: "lg" })}>
@@ -79,8 +79,9 @@ export default function Home() {
         <Card className="p-6">
           <h2 className="font-semibold">Current status</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            {brand.name} is in early development. The desktop shell and workstation checks work today. Repository
-            discovery, planning, delegation and verification are being built in that order.
+            {brand.name} is in early development. Today the desktop app runs workstation checks, keeps versioned local
+            state, stores credentials in the OS keychain, runs commands under a strict policy and records an audit
+            trail. Repository discovery, planning, Devin integration and verification follow, in that order.
           </p>
           <Link href="/docs/" className="mt-4 inline-block text-sm text-accent underline underline-offset-2">
             What works today

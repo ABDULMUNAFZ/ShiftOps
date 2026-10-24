@@ -6,8 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: `${brand.name}: ${brand.tagline}`, template: `%s · ${brand.name}` },
-  description:
-    "ShiftOps plans codebase-wide migrations across every affected repository, delegates repository work to Devin and verifies each result independently.",
+  description: brand.description,
 };
 
 // Applies the saved or OS theme before first paint to avoid a flash.

@@ -1,5 +1,5 @@
 import { brand, Button, cn, Kbd, Logo } from "@shiftops/ui";
-import { History, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { History, Info, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { ActivityCentre } from "../features/activity/ActivityCentre";
@@ -93,7 +93,22 @@ export function Shell() {
           ))}
         </nav>
 
-        <div className="border-t border-border p-2">
+        <div className="space-y-0.5 border-t border-border p-2">
+          <NavLink
+            to="/about"
+            title={collapsed ? "About" : undefined}
+            aria-label={collapsed ? "About" : undefined}
+            className={({ isActive }) =>
+              cn(
+                "flex h-7 items-center gap-2.5 rounded-md text-xs transition-colors",
+                collapsed ? "justify-center" : "px-2.5",
+                isActive ? "bg-accent-soft text-fg" : "text-muted hover:bg-surface-2 hover:text-fg",
+              )
+            }
+          >
+            <Info className="size-4 shrink-0" aria-hidden />
+            {collapsed ? null : "About"}
+          </NavLink>
           <Button
             variant="ghost"
             size={collapsed ? "icon" : "sm"}
