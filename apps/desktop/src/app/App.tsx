@@ -11,7 +11,10 @@ import { processStore } from "../lib/processStore";
 import { useSettings } from "../lib/queries";
 import { useApplyTheme } from "../lib/theme";
 import { AboutPage } from "../pages/AboutPage";
-import { AgentRunsPage, CampaignsPage, VerificationPage } from "../pages/DataPages";
+import { VerificationPage } from "../pages/DataPages";
+import { CampaignsPage } from "../pages/CampaignsPage";
+import { CampaignDetailPage } from "../pages/CampaignDetailPage";
+import { AgentRunsPage } from "../pages/TasksPage";
 import { RepositoriesPage } from "../pages/RepositoriesPage";
 import { RepositoryDetailPage } from "../pages/RepositoryDetailPage";
 import { IntegrationsPage } from "../pages/IntegrationsPage";
@@ -32,6 +35,7 @@ const router = createHashRouter([
       { path: "repositories", element: <RepositoriesPage /> },
       { path: "repositories/:id", element: <RepositoryDetailPage /> },
       { path: "campaigns", element: <CampaignsPage /> },
+      { path: "campaigns/:id", element: <CampaignDetailPage /> },
       { path: "agent-runs", element: <AgentRunsPage /> },
       { path: "verification", element: <VerificationPage /> },
       { path: "integrations", element: <IntegrationsPage /> },

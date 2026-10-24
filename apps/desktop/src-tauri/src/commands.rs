@@ -19,6 +19,7 @@ use crate::db::activity::{self, ActivityEvent, ActivityQuery, NewEvent, Severity
 use crate::db::agents::{self, AgentTask, TaskQuery};
 use crate::db::campaigns::{self, Campaign, CampaignRepository};
 use crate::db::credentials::{CredentialKind, Provider};
+use crate::db::intelligence;
 use crate::db::migrations::{self, AppliedMigration};
 use crate::db::patterns::{self, MigrationPattern};
 use crate::db::repositories::{self, Repository};
@@ -26,14 +27,16 @@ use crate::db::roots::{self, RepositoryRoot};
 use crate::db::settings::{self, ExecutionLimits};
 use crate::db::verification::{self, RunQuery, VerificationRun};
 use crate::db::{ListParams, Page};
+use crate::devin::{self, DevinStatus};
 use crate::discovery::{
     DiscoveryMode, DiscoveryRequest, DiscoveryResult, ImportSummary, TauriDiscoverySink,
     DEFAULT_MAX_ENTRIES,
 };
 use crate::environment::{self, Report, Status};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, ErrorCode};
 use crate::process::{
-    ActiveProcess, CancelOutcome, CommandCategory, CommandSpec, Program, TauriSink,
+    ActiveProcess, CancelOutcome, CommandCategory, CommandSpec, ExecutionPolicy, ProcessRunner,
+    Program, TauriSink,
 };
 use crate::shell_path;
 use crate::AppState;
@@ -1118,4 +1121,850 @@ pub fn open_submission_file<R: Runtime>(name: String, app: AppHandle<R>) -> AppR
     app.opener()
         .open_path(path.display().to_string(), None::<&str>)
         .map_err(|e| AppError::internal(format!("opening submission document failed: {e}")))
+}
+
+// ------------------------------------------------------------ campaigns
+
+fn campaign_activity(
+    c: &rusqlite::Connection,
+    kind: &'static str,
+    severity: Severity,
+    message: String,
+    entity: String,
+    metadata: serde_json::Value,
+) -> AppResult<()> {
+    activity::record(
+        c,
+        NewEvent::new("campaign", kind, severity, message)
+            .entity(entity)
+            .metadata(metadata),
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn create_campaign(
+    definition: campaigns::CampaignDefinition,
+    repository_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Campaign> {
+    state.db.write(|c| {
+        let campaign = campaigns::create_with_repositories(c, &definition, &repository_ids)?;
+        campaign_activity(
+            c,
+            "campaign.created",
+            Severity::Notice,
+            format!(
+                "Created campaign {} ({} repositories)",
+                campaign.name,
+                repository_ids.len()
+            ),
+            campaign.id.clone(),
+            json!({ "repositories": repository_ids }),
+        )?;
+        Ok(campaign)
+    })
+}
+
+#[tauri::command]
+pub fn update_campaign(
+    id: String,
+    definition: campaigns::CampaignDefinition,
+    state: State<'_, AppState>,
+) -> AppResult<Campaign> {
+    state.db.write(|c| {
+        let campaign = campaigns::update_definition(c, &id, &definition)?;
+        campaign_activity(
+            c,
+            "campaign.updated",
+            Severity::Notice,
+            format!("Updated campaign {}", campaign.name),
+            campaign.id.clone(),
+            json!({}),
+        )?;
+        Ok(campaign)
+    })
+}
+
+#[tauri::command]
+pub fn delete_campaign(
+    id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<Campaign> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Deleting a campaign requires confirmation.",
+        ));
+    }
+    state.db.write(|c| {
+        let campaign = campaigns::get(c, &id)?;
+        campaigns::delete(c, &id)?;
+        campaign_activity(
+            c,
+            "campaign.deleted",
+            Severity::Warning,
+            format!("Deleted campaign {}", campaign.name),
+            campaign.id.clone(),
+            json!({}),
+        )?;
+        Ok(campaign)
+    })
+}
+
+#[tauri::command]
+pub fn set_campaign_status(
+    id: String,
+    status: String,
+    state: State<'_, AppState>,
+) -> AppResult<Campaign> {
+    let to = campaigns::CampaignStatus::parse(&status)?;
+    state.db.write(|c| {
+        let campaign = campaigns::set_status(c, &id, to)?;
+        campaign_activity(
+            c,
+            "campaign.status_changed",
+            Severity::Notice,
+            format!("Campaign {} is now {}", campaign.name, to.as_str()),
+            campaign.id.clone(),
+            json!({ "status": to.as_str() }),
+        )?;
+        Ok(campaign)
+    })
+}
+
+#[tauri::command]
+pub fn add_campaign_repositories(
+    campaign_id: String,
+    repository_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Campaign> {
+    state.db.write(|c| {
+        campaigns::add_repositories(c, &campaign_id, &repository_ids)?;
+        let campaign = campaigns::get(c, &campaign_id)?;
+        campaign_activity(
+            c,
+            "campaign.repositories_added",
+            Severity::Notice,
+            format!(
+                "Added {} repositories to {}",
+                repository_ids.len(),
+                campaign.name
+            ),
+            campaign_id,
+            json!({ "repositories": repository_ids }),
+        )?;
+        Ok(campaign)
+    })
+}
+
+#[tauri::command]
+pub fn remove_campaign_repository(
+    member_id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<CampaignRepository> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Removing a repository from a campaign requires confirmation.",
+        ));
+    }
+    state.db.write(|c| {
+        let member = campaigns::get_member(c, &member_id)?;
+        campaigns::remove_member(c, &member_id)?;
+        campaign_activity(
+            c,
+            "campaign.repository_removed",
+            Severity::Notice,
+            format!("Removed {} from the campaign", member.repository_name),
+            member.campaign_id.clone(),
+            json!({ "repositoryId": member.repository_id }),
+        )?;
+        Ok(member)
+    })
+}
+
+#[tauri::command]
+pub fn exclude_campaign_repository(
+    member_id: String,
+    reason: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<CampaignRepository> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Excluding a repository requires confirmation.",
+        ));
+    }
+    state.db.write(|c| {
+        let member = campaigns::exclude_member(c, &member_id, &reason)?;
+        campaign_activity(
+            c,
+            "campaign.repository_excluded",
+            Severity::Notice,
+            format!("Excluded {} from the campaign", member.repository_name),
+            member.campaign_id.clone(),
+            json!({ "repositoryId": member.repository_id, "reason": reason }),
+        )?;
+        Ok(member)
+    })
+}
+
+#[tauri::command]
+pub fn include_campaign_repository(
+    member_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CampaignRepository> {
+    state.db.write(|c| {
+        campaigns::set_member_status(c, &member_id, campaigns::MembershipStatus::Pending)
+    })
+}
+
+#[tauri::command]
+pub fn resolve_member_review(
+    member_id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<CampaignRepository> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Resolving a review flag requires confirmation.",
+        ));
+    }
+    state.db.write(|c| {
+        let member = campaigns::resolve_member_review(c, &member_id)?;
+        campaign_activity(
+            c,
+            "campaign.review_resolved",
+            Severity::Notice,
+            format!("Cleared the review flag on {}", member.repository_name),
+            member.campaign_id.clone(),
+            json!({ "repositoryId": member.repository_id }),
+        )?;
+        Ok(member)
+    })
+}
+
+// ------------------------------------------------- planning evidence & apply
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanEvidenceMember {
+    pub member_id: String,
+    pub repository_id: String,
+    pub name: String,
+    pub trust_status: String,
+    pub ownership: Option<String>,
+    pub has_local_checkout: bool,
+    pub uncommitted_changes: Option<u32>,
+    pub last_scanned_at: Option<String>,
+    pub facts: Vec<intelligence::StoredFact>,
+    pub conflicts: Vec<intelligence::StoredConflict>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanEvidenceEdge {
+    pub from: String,
+    pub to: String,
+    pub confidence: f64,
+    pub confirmation_status: String,
+    pub detection_method: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CampaignPlanEvidence {
+    pub campaign: Campaign,
+    pub members: Vec<PlanEvidenceMember>,
+    pub edges: Vec<PlanEvidenceEdge>,
+}
+
+#[tauri::command]
+pub fn campaign_plan_evidence(
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CampaignPlanEvidence> {
+    state.db.read(|c| {
+        let campaign = campaigns::get(c, &campaign_id)?;
+        let members = campaigns::all_members(c, &campaign_id)?;
+        let mut evidence = Vec::with_capacity(members.len());
+        let mut edges = Vec::new();
+        let mut seen_edges = std::collections::HashSet::new();
+        for member in &members {
+            let repo = repositories::get(c, &member.repository_id)?;
+            let intel = intelligence::latest(c, &member.repository_id)?;
+            let uncommitted = [repo.staged_count, repo.modified_count, repo.untracked_count]
+                .into_iter()
+                .flatten()
+                .reduce(|a, b| a + b);
+            let page = repositories::list_dependencies(
+                c,
+                &member.repository_id,
+                &ListParams {
+                    limit: Some(200),
+                    ..Default::default()
+                },
+            )?;
+            for dep in page.items {
+                let key = (
+                    dep.source_repository_id.clone(),
+                    dep.target_repository_id.clone(),
+                    dep.relationship_type.clone(),
+                );
+                if seen_edges.insert(key) {
+                    edges.push(PlanEvidenceEdge {
+                        from: dep.source_repository_id,
+                        to: dep.target_repository_id,
+                        confidence: dep.confidence,
+                        confirmation_status: dep.confirmation_status.as_str().into(),
+                        detection_method: dep.detection_method,
+                    });
+                }
+            }
+            evidence.push(PlanEvidenceMember {
+                member_id: member.id.clone(),
+                repository_id: member.repository_id.clone(),
+                name: repo.name.clone(),
+                trust_status: repo.trust_status.as_str().into(),
+                ownership: repo.ownership.map(|o| o.as_str().into()),
+                has_local_checkout: repo
+                    .local_path
+                    .as_ref()
+                    .is_some_and(|p| std::path::Path::new(p).is_dir()),
+                uncommitted_changes: uncommitted,
+                last_scanned_at: repo.last_scanned_at.clone(),
+                facts: intel.facts,
+                conflicts: intel.conflicts,
+            });
+        }
+        Ok(CampaignPlanEvidence {
+            campaign,
+            members: evidence,
+            edges,
+        })
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanMemberInput {
+    pub repository_id: String,
+    pub classification: String,
+    pub risk_score: Option<f64>,
+    pub reasons: Vec<String>,
+    pub wave_number: Option<u32>,
+    #[serde(default)]
+    pub review_required: bool,
+}
+
+#[tauri::command]
+pub fn apply_campaign_plan(
+    campaign_id: String,
+    members: Vec<PlanMemberInput>,
+    mark_ready: bool,
+    state: State<'_, AppState>,
+) -> AppResult<Campaign> {
+    state.db.write(|c| {
+        for input in &members {
+            let member = campaigns::member_for(c, &campaign_id, &input.repository_id)?;
+            campaigns::assess_member(
+                c,
+                &member.id,
+                &campaigns::Assessment {
+                    classification: campaigns::Classification::parse(&input.classification)?,
+                    risk_score: input.risk_score,
+                    risk_explanation: json!(input.reasons),
+                    wave_number: input.wave_number,
+                    review_required: input.review_required,
+                },
+            )?;
+        }
+        let mut campaign = campaigns::get(c, &campaign_id)?;
+        if mark_ready {
+            if campaign.status == campaigns::CampaignStatus::Draft {
+                campaign =
+                    campaigns::set_status(c, &campaign_id, campaigns::CampaignStatus::Planning)?;
+            }
+            if campaign.status == campaigns::CampaignStatus::Planning {
+                campaign =
+                    campaigns::set_status(c, &campaign_id, campaigns::CampaignStatus::Ready)?;
+            }
+        }
+        campaign_activity(
+            c,
+            "campaign.plan_applied",
+            Severity::Notice,
+            format!(
+                "Applied the rollout plan to {} ({} members)",
+                campaign.name,
+                members.len()
+            ),
+            campaign.id.clone(),
+            json!({ "markReady": mark_ready }),
+        )?;
+        Ok(campaign)
+    })
+}
+
+// ------------------------------------------------------- dependency edges
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdgeRefresh {
+    pub repositories_with_scan: u32,
+    pub candidates: u32,
+    pub upserted: u32,
+}
+
+/// Match a declared dependency name to a registered repository. Name or
+/// GitHub repo equal (case-insensitive), or scoped name's last segment.
+fn dependency_matches(candidate: &str, repos: &[repositories::Repository]) -> Vec<String> {
+    let norm = |s: &str| s.trim().to_ascii_lowercase();
+    let cand = norm(candidate);
+    let last = cand.rsplit('/').next().unwrap_or(&cand).to_string();
+    repos
+        .iter()
+        .filter(|r| {
+            norm(&r.name) == cand
+                || r.github_repo.as_deref().map(norm).as_deref() == Some(cand.as_str())
+                || norm(&r.name) == last
+                || r.github_repo.as_deref().map(norm).as_deref() == Some(last.as_str())
+        })
+        .map(|r| r.id.clone())
+        .collect()
+}
+
+#[tauri::command]
+pub fn refresh_dependency_edges(state: State<'_, AppState>) -> AppResult<EdgeRefresh> {
+    state.db.write(|c| {
+        let repos = repositories::all(c)?;
+        let mut scanned = 0u32;
+        let mut candidates = 0u32;
+        let mut upserted = 0u32;
+        for repo in &repos {
+            let intel = intelligence::latest(c, &repo.id)?;
+            if intel.scan.is_none() {
+                continue;
+            }
+            scanned += 1;
+            for stored in &intel.facts {
+                let fact = &stored.fact;
+                if fact.category.as_str() != "dependency" {
+                    continue;
+                }
+                let name = fact.key.trim();
+                if name.len() < 2 || name == "dependencies" {
+                    continue;
+                }
+                let confidence = if fact.value.starts_with("workspace:")
+                    || fact.value.starts_with("file:")
+                    || fact.value.starts_with("link:")
+                {
+                    0.85
+                } else {
+                    0.6
+                };
+                for target in dependency_matches(name, &repos) {
+                    if target == repo.id {
+                        continue;
+                    }
+                    candidates += 1;
+                    repositories::upsert_dependency(
+                        c,
+                        &repositories::NewDependency {
+                            source_repository_id: repo.id.clone(),
+                            target_repository_id: target,
+                            relationship_type: "package_dependency".into(),
+                            confidence,
+                            evidence: json!([{
+                                "key": fact.key,
+                                "value": fact.value,
+                                "file": fact.file,
+                                "line": fact.line,
+                                "pointer": fact.pointer,
+                                "method": fact.method,
+                            }]),
+                            detection_method: "declared_dependency_name".into(),
+                        },
+                    )?;
+                    upserted += 1;
+                }
+            }
+        }
+        if upserted > 0 {
+            campaign_activity(
+                c,
+                "campaign.dependency_edges_refreshed",
+                Severity::Notice,
+                format!("Recorded {upserted} inferred dependency edges from declared packages"),
+                "repositories".into(),
+                json!({ "scanned": scanned, "candidates": candidates, "upserted": upserted }),
+            )?;
+        }
+        Ok(EdgeRefresh {
+            repositories_with_scan: scanned,
+            candidates,
+            upserted,
+        })
+    })
+}
+
+#[tauri::command]
+pub fn list_repository_dependencies(
+    repository_id: String,
+    params: ListParams,
+    state: State<'_, AppState>,
+) -> AppResult<Page<repositories::RepositoryDependency>> {
+    state
+        .db
+        .read(|c| repositories::list_dependencies(c, &repository_id, &params))
+}
+
+// ---------------------------------------------------------------- Devin
+
+#[tauri::command]
+pub async fn devin_status() -> AppResult<DevinStatus> {
+    devin::status().await
+}
+
+fn devin_evidence_lines(intel: &intelligence::Intelligence) -> Vec<String> {
+    intel
+        .facts
+        .iter()
+        .take(40)
+        .map(|stored| {
+            let f = &stored.fact;
+            let where_ = if let (Some(file), Some(pointer)) = (&f.file, &f.pointer) {
+                format!("{file}{pointer}")
+            } else if let (Some(file), Some(line)) = (&f.file, f.line) {
+                format!("{file}:{line}")
+            } else {
+                f.file.clone().unwrap_or_else(|| "?".into())
+            };
+            format!("{}={} ({})", f.key, f.value, where_)
+        })
+        .collect()
+}
+
+fn verification_commands(intel: &intelligence::Intelligence) -> Vec<String> {
+    let pm = intel
+        .facts
+        .iter()
+        .find(|f| f.fact.category.as_str() == "package_manager")
+        .map(|f| f.fact.key.clone())
+        .unwrap_or_else(|| "npm".into());
+    let runner = match pm.as_str() {
+        "pnpm" | "npm" | "yarn" => pm.clone(),
+        other => {
+            let _ = other;
+            "npm".to_string()
+        }
+    };
+    intel
+        .facts
+        .iter()
+        .filter(|f| {
+            f.fact.category.as_str() == "script"
+                && matches!(
+                    f.fact.key.as_str(),
+                    "test" | "build" | "lint" | "check" | "typecheck"
+                )
+        })
+        .map(|f| format!("{runner} run {}", f.fact.key))
+        .collect()
+}
+
+#[tauri::command]
+pub fn create_agent_task(member_id: String, state: State<'_, AppState>) -> AppResult<AgentTask> {
+    state.db.write(|c| {
+        let member = campaigns::get_member(c, &member_id)?;
+        if member.status == campaigns::MembershipStatus::Excluded {
+            return Err(AppError::validation(
+                "An excluded repository cannot get a task.",
+            ));
+        }
+        if let Some(existing) = agents::task_for_member(c, &member_id)? {
+            if !matches!(
+                existing.status,
+                agents::TaskStatus::Completed
+                    | agents::TaskStatus::Failed
+                    | agents::TaskStatus::Cancelled
+            ) {
+                return Err(AppError::validation(
+                    "An open Devin task already exists for this repository.",
+                ));
+            }
+        }
+        let campaign = campaigns::get(c, &member.campaign_id)?;
+        let repo = repositories::get(c, &member.repository_id)?;
+        let intel = intelligence::latest(c, &member.repository_id)?;
+        let constraints: Vec<String> = campaign
+            .constraints
+            .as_object()
+            .map(|o| {
+                o.iter()
+                    .take(20)
+                    .map(|(k, v)| format!("{k}: {}", v.as_str().unwrap_or(&v.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let github = match (&repo.github_owner, &repo.github_repo) {
+            (Some(o), Some(r)) => Some(format!("{o}/{r}")),
+            _ => None,
+        };
+        let instructions = devin::build_instructions(&devin::TaskContext {
+            campaign_name: &campaign.name,
+            objective: &campaign.objective,
+            migration_type: &campaign.migration_type,
+            repository_name: &repo.name,
+            local_path: repo.local_path.as_deref().unwrap_or("(no checkout)"),
+            github: github.as_deref(),
+            current_branch: repo.current_branch.as_deref(),
+            evidence: &devin_evidence_lines(&intel),
+            verification_commands: &verification_commands(&intel),
+            constraints: &constraints,
+        });
+        let task = agents::create_task(
+            c,
+            &agents::NewAgentTask {
+                campaign_repository_id: member.id.clone(),
+                provider: agents::AgentProvider::Devin,
+                execution_mode: agents::ExecutionMode::LocalCli,
+                instructions_markdown: instructions,
+            },
+        )?;
+        campaign_activity(
+            c,
+            "agent.task_created",
+            Severity::Notice,
+            format!("Drafted a Devin task for {}", member.repository_name),
+            member.campaign_id.clone(),
+            json!({ "memberId": member.id, "taskId": task.id }),
+        )?;
+        Ok(task)
+    })
+}
+
+#[tauri::command]
+pub fn approve_agent_task(
+    id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<AgentTask> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Approving a Devin task requires confirmation.",
+        ));
+    }
+    state.db.write(|c| {
+        let task = agents::approve_task(c, &id)?;
+        activity::record(
+            c,
+            NewEvent::new(
+                "agent",
+                "agent.task_approved",
+                Severity::Notice,
+                "Devin task approved for dispatch",
+            )
+            .entity(task.id.clone())
+            .metadata(json!({ "memberId": task.campaign_repository_id })),
+        )?;
+        Ok(task)
+    })
+}
+
+#[tauri::command]
+pub async fn dispatch_agent_task<R: Runtime>(
+    id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+    app: AppHandle<R>,
+) -> AppResult<AgentTask> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Dispatching a Devin task requires confirmation.",
+        ));
+    }
+    let (task, member) = state.db.read(|c| {
+        Ok::<_, AppError>((
+            agents::get_task(c, &id)?,
+            campaigns::get_member(c, &agents::get_task(c, &id)?.campaign_repository_id)?,
+        ))
+    })?;
+    if task.approved_at.is_none() {
+        return Err(AppError::validation(
+            "A Devin task must be approved before dispatch.",
+        ));
+    }
+    if !matches!(
+        task.status,
+        agents::TaskStatus::Pending | agents::TaskStatus::Queued
+    ) {
+        return Err(AppError::validation(format!(
+            "Task is {}; only a pending task can dispatch.",
+            task.status.as_str()
+        )));
+    }
+    if member.review_required {
+        return Err(AppError::validation(
+            "Planning flagged this repository for human review; resolve it first.",
+        ));
+    }
+    if member.classification != campaigns::Classification::Affected {
+        return Err(AppError::validation(
+            "Only repositories classified affected can be delegated.",
+        ));
+    }
+    let repository = state
+        .db
+        .read(|c| repositories::get(c, &member.repository_id))?;
+    if repository.trust_status != repositories::TrustStatus::Trusted {
+        return Err(AppError::validation(
+            "Dispatch requires the repository to be trusted.",
+        ));
+    }
+    let checkout = repository
+        .local_path
+        .as_ref()
+        .map(std::path::PathBuf::from)
+        .and_then(|p| std::fs::canonicalize(p).ok())
+        .filter(|p| p.is_dir())
+        .ok_or_else(|| AppError::validation("The repository has no readable local checkout."))?;
+
+    let status = devin::status().await?;
+    if !(status.installed && status.authenticated) {
+        return Err(AppError::new(
+            ErrorCode::DevinNotConfigured,
+            "Devin CLI is not installed or not authenticated; task stays undispatched.",
+        ));
+    }
+
+    let runner = ProcessRunner::new(
+        ExecutionPolicy::devin_dispatch(checkout.clone()),
+        Some(state.log_dir.clone()),
+        Some(state.db.clone()),
+    );
+    let spec = devin::dispatch_spec(&task.instructions_markdown, &checkout);
+    let search = shell_path::search_path().await;
+    let started = runner.start(spec, search, Arc::new(TauriSink(app.clone())))?;
+    let run_id = started.run_id.clone();
+    let task_id = task.id.clone();
+
+    let updated = state.db.write(|c| {
+        agents::start_run(c, &task.id, "devin", None, Some(&run_id))?;
+        let task = agents::set_task_status(c, &task.id, agents::TaskStatus::Running)?;
+        campaigns::set_member_status(c, &member.id, campaigns::MembershipStatus::InProgress)?;
+        campaign_activity(
+            c,
+            "agent.task_dispatched",
+            Severity::Notice,
+            format!("Dispatched a Devin task for {}", member.repository_name),
+            member.campaign_id.clone(),
+            json!({ "taskId": task.id, "runId": run_id }),
+        )?;
+        Ok(task)
+    })?;
+
+    state
+        .devin_runs
+        .lock()
+        .map_err(|_| AppError::internal("Devin run registry is poisoned."))?
+        .insert(task_id.clone(), (runner, run_id.clone()));
+
+    let db = state.db.clone();
+    let devin_runs = state.devin_runs.clone();
+    let member_id = member.id.clone();
+    let campaign_id = member.campaign_id.clone();
+    tokio::spawn(async move {
+        let outcome = started.handle.await;
+        let (task_status, run_status, member_status, note) = match outcome {
+            Ok(ref r) => match r.status {
+                crate::process::RunStatus::Succeeded => (
+                    agents::TaskStatus::AwaitingReview,
+                    agents::RunStatus::Succeeded,
+                    campaigns::MembershipStatus::AwaitingVerification,
+                    "Devin session finished".to_string(),
+                ),
+                crate::process::RunStatus::Cancelled => (
+                    agents::TaskStatus::Cancelled,
+                    agents::RunStatus::Cancelled,
+                    campaigns::MembershipStatus::Pending,
+                    "Devin session cancelled".to_string(),
+                ),
+                crate::process::RunStatus::TimedOut => (
+                    agents::TaskStatus::Failed,
+                    agents::RunStatus::TimedOut,
+                    campaigns::MembershipStatus::Failed,
+                    "Devin session timed out".to_string(),
+                ),
+                crate::process::RunStatus::Failed => (
+                    agents::TaskStatus::Failed,
+                    agents::RunStatus::Failed,
+                    campaigns::MembershipStatus::Failed,
+                    "Devin session failed".to_string(),
+                ),
+            },
+            Err(ref e) => (
+                agents::TaskStatus::Failed,
+                agents::RunStatus::Failed,
+                campaigns::MembershipStatus::Failed,
+                format!("Devin session lost: {e}"),
+            ),
+        };
+        let _ = db.write(|c| -> AppResult<()> {
+            if let Ok(Some(run)) = agents::run_by_external_id(c, &run_id) {
+                let _ = agents::finish_run(
+                    c,
+                    &run.id,
+                    run_status,
+                    outcome.ok().and_then(|r| r.exit_code),
+                    None,
+                    None,
+                );
+            }
+            let _ = agents::set_task_status(c, &task_id, task_status);
+            let _ = campaigns::set_member_status(c, &member_id, member_status);
+            let _ = campaign_activity(
+                c,
+                "agent.task_finished",
+                Severity::Notice,
+                note,
+                campaign_id,
+                json!({ "taskId": task_id }),
+            );
+            Ok(())
+        });
+        if let Ok(mut m) = devin_runs.lock() {
+            m.remove(&task_id);
+        }
+    });
+
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn cancel_agent_task(id: String, state: State<'_, AppState>) -> AppResult<AgentTask> {
+    let entry = state
+        .devin_runs
+        .lock()
+        .map_err(|_| AppError::internal("Devin run registry is poisoned."))?
+        .get(&id)
+        .map(|(r, run_id)| (r.clone(), run_id.clone()));
+    match entry {
+        Some((runner, run_id)) => {
+            runner.cancel(&run_id);
+            state.db.read(|c| agents::get_task(c, &id))
+        }
+        None => Err(AppError::validation("No live Devin session for this task.")),
+    }
+}
+
+#[tauri::command]
+pub fn list_agent_runs(
+    task_id: String,
+    params: ListParams,
+    state: State<'_, AppState>,
+) -> AppResult<Page<agents::AgentRun>> {
+    state.db.read(|c| agents::list_runs(c, &task_id, &params))
 }

@@ -168,3 +168,26 @@ export function useGithubStatus() {
 export function useGithubOrganizations(enabled: boolean) {
   return useQuery({ queryKey: queryKeys.github.organizations, queryFn: native.githubListOrganizations, enabled });
 }
+
+export function useCampaign(id: string) {
+  return useQuery({ queryKey: queryKeys.campaigns.detail(id), queryFn: () => native.getCampaign(id) });
+}
+
+export function useCampaignMembers(id: string, params: ListParams) {
+  return useQuery({
+    queryKey: queryKeys.campaigns.members(id, params),
+    queryFn: () => native.listCampaignRepositories(id, params),
+  });
+}
+
+export function useDevinStatus() {
+  return useQuery({ queryKey: queryKeys.devin.status, queryFn: native.devinStatus });
+}
+
+export function useAgentRuns(taskId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.agentRuns.list(taskId ?? ""),
+    queryFn: () => native.listAgentRuns(taskId ?? "", {}),
+    enabled: Boolean(taskId),
+  });
+}

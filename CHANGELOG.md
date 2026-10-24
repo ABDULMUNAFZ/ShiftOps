@@ -2,6 +2,28 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T02:29:57+05:30 — Campaigns, rollout planning and approval-gated Devin delegation (Task 4)
+
+- Changed:
+  - Campaigns page creates campaigns from real repository records with objective, migration type, runtime source/target majors, deadline and parallelism; campaign detail shows definition, members, status transitions, exclusion with reason, include, and cancel. All writes record activity.
+  - `planCampaign` (pure, deterministic) classifies members against the goal, scores 0–1 risk with cited evidence, blocks no-checkout / unscanned / blocked-trust / cycle members in wave 0, orders the rest dependencies-first, reports edges outside the campaign as unknown and flags high-risk, conflicted or unclassifiable members for review.
+  - `refresh_dependency_edges` records `inferred` edges from declared dependency names that match registered repositories, with the declaring fact as evidence.
+  - Migration 9: `agent_tasks.instructions_hash`, `agent_tasks.approved_at`, `campaign_repositories.review_required`.
+  - `devin.rs`: CLI detection and `devin auth status`; deterministic task instructions (identity, goal, evidence, scope, acceptance criteria, Task 5 verification commands, prohibitions); exact dispatch vector `devin -p <task> --permission-mode smart --sandbox --respect-workspace-trust false`.
+  - New `devin` execution policies (`devin_cli`, `devin_dispatch`) and error code `DEVIN_NOT_CONFIGURED`.
+  - 19 new commands (84 total): campaign lifecycle and membership, plan evidence/apply, dependency edges, Devin status, task draft/approve/dispatch/cancel, run list.
+  - Agent Runs page lists tasks with instructions, hash, approval and runs; Approve and Dispatch are separate steps. Integrations shows Devin installed / connected / not signed in / error.
+- Why: Task 4 turns repository intelligence into a planned, auditable rollout and delegates only what a human approved, inside Devin's own sandbox.
+- Validation:
+  - `pnpm check`: 92 JavaScript tests (core 21, desktop 58); 183 Rust tests passed, 3 ignored; Prettier, types, ESLint, rustfmt and Clippy `-D warnings` clean.
+  - Website and desktop production builds pass.
+  - IPC test drives create → evidence → apply → draft → approve and proves dispatch refuses without confirm, without approval, with a review flag and for an untrusted repository, starting no process.
+  - Manual `devin::status_rehearsal` against the installed CLI: installed `devin 3000.11.205`, authenticated.
+- Limitations:
+  - No live Devin dispatch was run: it would modify a real checkout and spend the owner's Devin usage, so it needs the owner's explicit approval.
+  - Devin cloud sessions are not used: the CLI documents no remote task-creation command beyond the interactive REPL.
+  - Dependency edges are name-match heuristics only.
+
 ## 2026-10-25T00:59:50+05:30 — Repository management and Submission Readiness (Task 3, milestone 5)
 
 - Changed:

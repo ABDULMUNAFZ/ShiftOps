@@ -42,9 +42,23 @@ export const queryKeys = {
     pulls: (owner: string, name: string) => ["github", "pulls", owner, name] as const,
     repositoryFor: (id: string) => ["github", "repository-for", id] as const,
   },
-  campaigns: { list: (params: ListParams) => ["campaigns", "list", params] as const },
-  agentTasks: { list: (params: ListParams) => ["agent-tasks", "list", params] as const },
+  agentTasks: {
+    all: ["agent-tasks"] as const,
+    list: (params: ListParams) => ["agent-tasks", "list", params] as const,
+  },
   verificationRuns: { list: (params: ListParams) => ["verification-runs", "list", params] as const },
   migrationPatterns: { list: (params: ListParams) => ["migration-patterns", "list", params] as const },
   readiness: ["submission-readiness"] as const,
+  campaigns: {
+    all: ["campaigns"] as const,
+    list: (params: ListParams) => ["campaigns", "list", params] as const,
+    detail: (id: string) => ["campaigns", "detail", id] as const,
+    members: (id: string, params: ListParams) => ["campaigns", id, "members", params] as const,
+    evidence: (id: string) => ["campaigns", id, "evidence"] as const,
+  },
+  agentRuns: { list: (taskId: string) => ["agent-runs", taskId] as const },
+  devin: { status: ["devin", "status"] as const },
+  dependencies: {
+    list: (repositoryId: string, params: ListParams) => ["dependencies", repositoryId, params] as const,
+  },
 };

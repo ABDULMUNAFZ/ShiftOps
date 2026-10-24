@@ -174,6 +174,25 @@ impl ExecutionPolicy {
         }
     }
 
+    /// Devin status policy: `devin version` / `auth status` / `doctor` only,
+    /// from a neutral working directory.
+    pub fn devin_cli(roots: Vec<PathBuf>) -> Self {
+        Self {
+            allowed: HashSet::from([CommandCategory::Devin]),
+            cwd_roots: PathPolicy::new(roots),
+        }
+    }
+
+    /// Devin dispatch policy: the single documented `devin -p` vector built
+    /// by `devin::dispatch_args`, with the working directory inside the
+    /// trusted repository checkout `root`. Nothing else is allowed.
+    pub fn devin_dispatch(root: PathBuf) -> Self {
+        Self {
+            allowed: HashSet::from([CommandCategory::Devin]),
+            cwd_roots: PathPolicy::new([root]),
+        }
+    }
+
     #[cfg(test)]
     pub fn allowing(categories: &[CommandCategory], roots: Vec<PathBuf>) -> Self {
         Self {
@@ -194,12 +213,23 @@ impl ExecutionPolicy {
             .with_context("category", spec.category.as_str())
             .with_context("label", spec.label.as_str()));
         }
-        if spec.trust == TrustRequirement::TrustedRepository {
+        if spec.trust == TrustRequirement::TrustedRepository
+            && spec.category != CommandCategory::Devin
+        {
             return Err(AppError::new(
                 ErrorCode::CommandNotAllowed,
                 "Commands inside repositories are not enabled until repository trust is implemented.",
             )
             .with_context("category", spec.category.as_str()));
+        }
+        if spec.category == CommandCategory::Devin {
+            if !matches!(&spec.program, Program::Named(name) if name == "devin") {
+                return Err(AppError::new(
+                    ErrorCode::CommandNotAllowed,
+                    "devin commands must run `devin`.",
+                ));
+            }
+            crate::devin::validate_args(&spec.args)?;
         }
         if spec.category == CommandCategory::ReadonlyGit {
             if !matches!(&spec.program, Program::Named(name) if name == "git") {

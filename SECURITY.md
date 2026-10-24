@@ -39,7 +39,7 @@ Callers can also register literal secrets, for example a token passed in a child
 ### Process execution
 
 - **No shell, no arbitrary commands**: programs are executed directly with argument arrays. The web view cannot supply a program or arguments. `start_diagnostic` accepts one of four fixed kinds.
-- **Category policy**: the application runner allows only `environment_check`; discovery uses a separate runner that allows only `readonly_git`. A dedicated managed-clone runner permits exactly one policy-built initial `git clone` into an approved workspace. Other mutating Git, dependency install, build, test, lint, Docker, Devin and custom commands remain denied.
+- **Category policy**: the application runner allows only `environment_check`; discovery uses a separate runner that allows only `readonly_git`. A dedicated managed-clone runner permits exactly one policy-built initial `git clone` into an approved workspace. Devin runners permit only the vectors listed under Devin delegation. Other mutating Git, dependency install, build, test, lint, Docker and custom commands remain denied.
 - **Environment**: cleared, plus an allow-list of inherited variables. `PATH` cannot be overridden.
 - **Working directory**: validated, and must be an existing directory under an allowed root (OS temp or app data).
 - **Bounded runs**: every run has a timeout and an output-size limit. Output past the limit is discarded, and the pipe is drained so the child cannot block.
@@ -82,6 +82,15 @@ Callers can also register literal secrets, for example a token passed in a child
 
 - Migrations are transactional and verified with a foreign-key check before commit. An existing database is copied to `backups/` before an upgrade.
 - The schema enforces enums, ranges, uniqueness, foreign keys and self-reference rules, independently of application validation.
+
+### Devin delegation
+
+- The Devin CLI owns its credentials (`devin auth login`, stored by the CLI). ShiftOps stores none, never reads the CLI's credential file and passes no token in arguments or environment. Only the account email from `devin auth status` is shown.
+- The `devin` category is enabled only through two policies: `devin_cli` (exactly `version`, `auth status`, `doctor`) and `devin_dispatch` (exactly `-p <prompt> --permission-mode smart --sandbox --respect-workspace-trust false`, working directory inside one trusted checkout). Any other argument, program or category is `COMMAND_NOT_ALLOWED`.
+- Dispatch requires, in order: explicit confirmation, a recorded approval of the task's stored content hash, no outstanding planning review flag, classification `affected`, repository trust `trusted`, a canonical local checkout, and an installed, authenticated CLI. Every gate is tested over IPC.
+- `--sandbox` runs Devin's exec tool under macOS seatbelt / Linux bwrap, limited to writes inside the workspace. `--permission-mode smart` auto-runs only actions Devin's safety model judges safe. `--respect-workspace-trust false` is required because print mode cannot answer Devin's own trust prompt; ShiftOps' repository trust gate replaces it.
+- Task text contains scan evidence, which the scanner already redacts, and no credentials. Run output goes through the redacted run log like every other process.
+- Devin is told not to push, open pull requests or change remotes. ShiftOps cannot enforce that beyond the sandbox; Task 5 verifies the resulting working tree independently.
 
 ### Agent output
 

@@ -37,9 +37,12 @@ AI assistance is recorded in [AI_USAGE.md](AI_USAGE.md).
   6. Integrations → GitHub: connect with the device flow or a fine-grained PAT, then Repositories → Browse GitHub to import metadata-only, clone into an approved managed workspace, or link an existing checkout.
   7. Open a repository's detail page to review evidence, runtimes, dependencies, scripts, Docker, CI, Git, branches and pull requests; change its trust or forget only the record.
   8. Submission Readiness (⌘8): inspect the live evidence checklist, copy it, open the required documents, or open the GitHub repository.
-  9. Campaigns and Devin delegation: Pending (Tasks 4–5).
+  9. Campaigns → New campaign: pick scanned repositories, set "Upgrade Node.js 18 to Node.js 22" (node, 18 → 22), create.
+  10. Campaign detail: Refresh edges, Compute plan (waves, risk and cited reasons), Apply plan & mark ready, then Draft task on a member.
+  11. Agent Runs: open the task, read the generated instructions and hash, Approve. Dispatch to Devin runs only for a trusted, review-cleared, affected repository with a signed-in Devin CLI; otherwise it reports why.
+  12. Verification of Devin's result and the repair loop: Pending (Task 5).
 - **Checks performed and results:** See the latest entry in [CHANGELOG.md](CHANGELOG.md) and section 6 of [PROJECT_STATE.md](PROJECT_STATE.md).
-- **Known limitations or incomplete features:** See [PROJECT_STATE.md](PROJECT_STATE.md) §9. Devin integration does not exist yet (Task 4).
+- **Known limitations or incomplete features:** See [PROJECT_STATE.md](PROJECT_STATE.md) §9. Devin delegation uses the local Devin CLI; live dispatch was not exercised by the agent.
 - **Libraries, APIs, and public datasets used:** Tauri 2, React 19, Vite 8, TanStack Query, React Hook Form, Zod, cmdk, lucide-react, Tailwind CSS 4, Next.js 16, rusqlite (bundled SQLite), keyring, tokio, regex, url, uuid, tauri-plugin-opener. Exact versions are in `package.json` files and `Cargo.lock`.
 - **AI usage record:** [AI_USAGE.md](AI_USAGE.md)
 - **Development change log:** [CHANGELOG.md](CHANGELOG.md)

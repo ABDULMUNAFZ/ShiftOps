@@ -18,6 +18,8 @@ export const changeKinds = [
   "github",
   "githubImport",
   "workspace",
+  "campaigns",
+  "devin",
 ] as const;
 export type ChangeKind = (typeof changeKinds)[number];
 
@@ -44,6 +46,15 @@ const affected: Record<ChangeKind, readonly QueryKey[]> = {
     queryKeys.workspace.all,
     queryKeys.github.all,
     queryKeys.repositories.all,
+    queryKeys.activity.all,
+    queryKeys.health.database,
+  ],
+  campaigns: [queryKeys.campaigns.all, queryKeys.agentTasks.all, queryKeys.activity.all, queryKeys.health.database],
+  devin: [
+    queryKeys.devin.status,
+    queryKeys.agentTasks.all,
+    queryKeys.campaigns.all,
+    ["agent-runs"],
     queryKeys.activity.all,
     queryKeys.health.database,
   ],

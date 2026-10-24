@@ -71,6 +71,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "managed_workspaces",
         sql: include_str!("sql/0008_managed_workspaces.sql"),
     },
+    Migration {
+        version: 9,
+        name: "agent_task_approval",
+        sql: include_str!("sql/0009_agent_task_approval.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {

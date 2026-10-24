@@ -323,14 +323,17 @@ pub struct CampaignRepository {
     pub risk_explanation: Value,
     pub wave_number: Option<u32>,
     pub status: MembershipStatus,
+    /// Planning flagged this member for human review; dispatch is refused
+    /// until `resolve_member_review` clears it.
+    pub review_required: bool,
     pub exclusion_reason: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
 
 const MEMBER_COLUMNS: &str = "SELECT cr.id, cr.campaign_id, cr.repository_id, r.name AS repository_name, \
-    cr.classification, cr.risk_score, cr.risk_explanation_json, cr.wave_number, cr.status, cr.exclusion_reason, \
-    cr.created_at, cr.updated_at";
+    cr.classification, cr.risk_score, cr.risk_explanation_json, cr.wave_number, cr.status, cr.review_required, \
+    cr.exclusion_reason, cr.created_at, cr.updated_at";
 const MEMBER_FROM: &str = "campaign_repositories cr JOIN repositories r ON r.id = cr.repository_id";
 
 fn map_member(r: &rusqlite::Row<'_>) -> rusqlite::Result<CampaignRepository> {
@@ -344,10 +347,37 @@ fn map_member(r: &rusqlite::Row<'_>) -> rusqlite::Result<CampaignRepository> {
         risk_explanation: json_col(r, "risk_explanation_json")?,
         wave_number: r.get("wave_number")?,
         status: r.get("status")?,
+        review_required: r.get::<_, i64>("review_required")? != 0,
         exclusion_reason: r.get("exclusion_reason")?,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,
     })
+}
+
+/// The membership row for one repository inside one campaign.
+pub fn member_for(
+    conn: &Connection,
+    campaign_id: &str,
+    repository_id: &str,
+) -> AppResult<CampaignRepository> {
+    conn.query_row(
+        &format!("{MEMBER_COLUMNS} FROM {MEMBER_FROM} WHERE cr.campaign_id = ?1 AND cr.repository_id = ?2"),
+        params![campaign_id, repository_id],
+        map_member,
+    )
+    .optional()?
+    .ok_or_else(|| AppError::not_found("Campaign repository", repository_id))
+}
+
+/// Every membership row of a campaign, unbounded, for planning.
+pub fn all_members(conn: &Connection, campaign_id: &str) -> AppResult<Vec<CampaignRepository>> {
+    let mut stmt = conn.prepare(&format!(
+        "{MEMBER_COLUMNS} FROM {MEMBER_FROM} WHERE cr.campaign_id = ?1 ORDER BY r.name COLLATE NOCASE"
+    ))?;
+    let rows = stmt
+        .query_map([campaign_id], map_member)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
 pub fn get_member(conn: &Connection, id: &str) -> AppResult<CampaignRepository> {
@@ -428,6 +458,8 @@ pub struct Assessment {
     pub risk_score: Option<f64>,
     pub risk_explanation: Value,
     pub wave_number: Option<u32>,
+    #[serde(default)]
+    pub review_required: bool,
 }
 
 pub fn assess_member(
@@ -441,8 +473,8 @@ pub fn assess_member(
     let explanation = json_text(&a.risk_explanation, "riskExplanation", JsonShape::Array)?;
     let changed = conn.execute(
         "UPDATE campaign_repositories SET classification = ?2, risk_score = ?3, risk_explanation_json = ?4,
-             wave_number = ?5, updated_at = ?6 WHERE id = ?1",
-        params![member_id, a.classification, a.risk_score, explanation, a.wave_number, time_util::now()],
+             wave_number = ?5, review_required = ?6, updated_at = ?7 WHERE id = ?1",
+        params![member_id, a.classification, a.risk_score, explanation, a.wave_number, a.review_required as i64, time_util::now()],
     )?;
     expect_changed(changed, "Campaign repository", member_id)?;
     get_member(conn, member_id)
@@ -463,6 +495,20 @@ pub fn set_member_status(
         params![member_id, status, time_util::now()],
     )?;
     expect_changed(changed, "Campaign repository", member_id)?;
+    get_member(conn, member_id)
+}
+
+/// Clear the human-review flag after a participant inspected the evidence.
+/// Recorded as an activity event by the calling command.
+pub fn resolve_member_review(conn: &Connection, member_id: &str) -> AppResult<CampaignRepository> {
+    let member = get_member(conn, member_id)?;
+    if !member.review_required {
+        return Ok(member);
+    }
+    conn.execute(
+        "UPDATE campaign_repositories SET review_required = 0, updated_at = ?2 WHERE id = ?1",
+        params![member_id, time_util::now()],
+    )?;
     get_member(conn, member_id)
 }
 
@@ -637,6 +683,7 @@ pub(crate) mod tests {
                         risk_score: Some(0.3),
                         risk_explanation: json!(["uses request in 4 files"]),
                         wave_number: Some(0),
+                        review_required: false,
                     },
                 )
             })
@@ -647,6 +694,7 @@ pub(crate) mod tests {
             risk_score: Some(2.0),
             risk_explanation: json!([]),
             wave_number: None,
+            review_required: false,
         };
         assert!(db
             .write(|c| assess_member(c, &members[0].id, &bad))

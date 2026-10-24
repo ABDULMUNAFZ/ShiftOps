@@ -37,6 +37,7 @@ pub enum ErrorCode {
     GithubAuthorizationExpired,
     GithubAuthorizationDenied,
     GitAuthenticationRequired,
+    DevinNotConfigured,
     InternalError,
 }
 
@@ -66,6 +67,7 @@ impl ErrorCode {
             Self::GithubAuthorizationExpired => "GITHUB_AUTHORIZATION_EXPIRED",
             Self::GithubAuthorizationDenied => "GITHUB_AUTHORIZATION_DENIED",
             Self::GitAuthenticationRequired => "GIT_AUTHENTICATION_REQUIRED",
+            Self::DevinNotConfigured => "DEVIN_NOT_CONFIGURED",
             Self::InternalError => "INTERNAL_ERROR",
         }
     }
@@ -103,6 +105,7 @@ impl ErrorCode {
             Self::GithubAuthorizationExpired => "The code expired before it was approved. Start the connection again.",
             Self::GithubAuthorizationDenied => "Authorization was declined on GitHub. Start again if this was a mistake.",
             Self::GitAuthenticationRequired => "Run `gh auth login` and then `gh auth setup-git` (or configure another Git credential helper for this host), then try again. ShiftOps never passes its stored token to Git.",
+            Self::DevinNotConfigured => "Install the Devin CLI and run `devin auth login`. The CLI keeps its own credentials; ShiftOps never stores them.",
             Self::InternalError => "Restart ShiftOps. If the problem persists, report it with the copied details.",
         })
     }

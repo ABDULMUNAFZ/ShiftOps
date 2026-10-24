@@ -1,10 +1,10 @@
 import type { Page as DataPage } from "@shiftops/core";
 import { Card, EmptyState, Spinner } from "@shiftops/ui";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { Bot, ShieldCheck, Workflow } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { ErrorDisplay } from "../components/ErrorDisplay";
-import { useAgentTasks, useCampaigns, useVerificationRuns } from "../lib/queries";
+import { useVerificationRuns } from "../lib/queries";
 import { Page } from "./Page";
 
 /*
@@ -58,52 +58,6 @@ function Listing<T extends { id: string }>({
         ))}
       </tbody>
     </table>
-  );
-}
-
-export function CampaignsPage() {
-  const query = useCampaigns({});
-  return (
-    <Page title="Campaigns" description="One codebase-wide change, planned across every affected repository.">
-      <Card>
-        <Listing
-          query={query}
-          columns={[
-            { header: "Name", cell: (c) => c.name },
-            { header: "Status", cell: (c) => c.status },
-            { header: "Repositories", cell: (c) => c.repositoryCount },
-          ]}
-          empty={
-            <EmptyState icon={<Workflow />} title="No campaigns">
-              Creating a campaign requires discovered repositories, which are not available in this build.
-            </EmptyState>
-          }
-        />
-      </Card>
-    </Page>
-  );
-}
-
-export function AgentRunsPage() {
-  const query = useAgentTasks({});
-  return (
-    <Page title="Agent Runs" description="Repository-level implementation sessions delegated to Devin.">
-      <Card>
-        <Listing
-          query={query}
-          columns={[
-            { header: "Task", cell: (t) => t.id },
-            { header: "Status", cell: (t) => t.status },
-            { header: "Branch", cell: (t) => t.branchName ?? "" },
-          ]}
-          empty={
-            <EmptyState icon={<Bot />} title="No agent runs">
-              No Devin sessions have been started from this workstation. Delegation is not implemented in this build.
-            </EmptyState>
-          }
-        />
-      </Card>
-    </Page>
   );
 }
 

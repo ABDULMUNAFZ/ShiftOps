@@ -40,14 +40,14 @@ Devin
 
 ShiftOps is built in six tasks. This table records what exists today.
 
-| Task                                                                | State                                                  |
-| ------------------------------------------------------------------- | ------------------------------------------------------ |
-| 1. Desktop foundation, environment checks, website                  | Complete                                               |
-| 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                                               |
-| 3. Product profile, local repository intelligence, GitHub           | In progress: profile, discovery, scanner, GitHub done  |
-| 4. Campaign planning, dependency intelligence, Devin integration    | Not started. **Devin integration does not exist yet.** |
-| 5. Migration execution, independent verification, Devin repair loop | Not started                                            |
-| 6. End-to-end workflow, packaging, security audit, submission       | Not started                                            |
+| Task                                                                | State                                 |
+| ------------------------------------------------------------------- | ------------------------------------- |
+| 1. Desktop foundation, environment checks, website                  | Complete                              |
+| 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                              |
+| 3. Product profile, local repository intelligence, GitHub           | Complete                              |
+| 4. Campaign planning, dependency intelligence, Devin integration    | Complete (local Devin CLI; see below) |
+| 5. Migration execution, independent verification, Devin repair loop | Not started                           |
+| 6. End-to-end workflow, packaging, security audit, submission       | Not started                           |
 
 Details, decisions and test results: [PROJECT_STATE.md](PROJECT_STATE.md). Change history: [CHANGELOG.md](CHANGELOG.md).
 
@@ -124,6 +124,17 @@ Then use **Repositories → Browse GitHub** and choose one of three modes:
 - **Link existing clone** compares its normalized remote with the GitHub repository and requires an explicit override when they differ. Existing clones remain external and are never modified or deleted.
 
 Repository detail lets you explicitly change trust or forget only the ShiftOps record. Forgetting a record never deletes checkout files. **Submission Readiness** derives the hackathon checklist from the current Git state, required documents, participant TODOs, validation evidence and a bounded tracked-secret review; it never marks the project Submitted automatically.
+
+## Campaigns and Devin delegation
+
+1. **Campaigns → New campaign**: name, objective (for example "Upgrade Node.js 18 to Node.js 22"), migration type, runtime key and source/target majors, optional deadline, parallelism, and repositories picked from your real records.
+2. **Refresh edges** records inferred dependency edges where one repository's scanned manifest declares a package whose name matches another registered repository. Edges are labelled `inferred` with the matching fact as evidence; they are never presented as certain.
+3. **Compute plan** runs the pure planner (`packages/core/src/planning.ts`) over the latest scan evidence: classification against the goal, a 0–1 risk score with cited reasons (uncommitted changes, scan conflicts, missing lockfile, no CI, many dependents), and deterministic waves. Wave 0 holds blockers (blocked trust, no checkout, no completed scan, dependency cycles). Later waves put dependencies before dependents. High-risk, conflicted, unclassifiable or externally-dependent repositories are flagged for human review.
+4. **Apply plan & mark ready** persists the plan per member and moves the campaign to `ready`.
+5. **Draft task** on a member builds a deterministic Devin task: repository identity, approved goal, scan evidence, scope, acceptance criteria, verification commands for Task 5, and explicit prohibitions. Its SHA-256 is stored.
+6. **Agent Runs → Approve**, then **Dispatch to Devin**. Dispatch requires: approval, a cleared review flag, classification `affected`, a trusted repository with a local checkout, and an installed, signed-in Devin CLI. It runs `devin -p <task> --permission-mode smart --sandbox --respect-workspace-trust false` in that checkout. Cancel stops the process group.
+
+Without a signed-in Devin CLI every step up to an approved draft still works; dispatch reports `DEVIN_NOT_CONFIGURED`.
 
 ## Commands
 

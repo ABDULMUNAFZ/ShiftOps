@@ -341,6 +341,7 @@ export const campaignRepositorySchema = z.object({
     "failed",
     "blocked",
   ]),
+  reviewRequired: z.boolean(),
   exclusionReason: z.string().nullable(),
   createdAt: timestamp,
   updatedAt: timestamp,
@@ -371,6 +372,8 @@ export const agentTaskSchema = z.object({
   commitSha: z.string().nullable(),
   pullRequestUrl: z.string().nullable(),
   status: agentTaskStatusSchema,
+  instructionsHash: z.string().nullable(),
+  approvedAt: timestamp.nullable(),
   startedAt: timestamp.nullable(),
   completedAt: timestamp.nullable(),
   createdAt: timestamp,
@@ -801,3 +804,79 @@ export const submissionReadinessSchema = z.object({
   reasons: z.array(z.string()),
 });
 export type SubmissionReadiness = z.infer<typeof submissionReadinessSchema>;
+
+// ------------------------------------------------------------ task 4: planning & devin
+
+export const repositoryDependencySchema = z.object({
+  id: z.string(),
+  sourceRepositoryId: z.string(),
+  targetRepositoryId: z.string(),
+  relationshipType: z.string(),
+  confidence: z.number().min(0).max(1),
+  evidence: json,
+  detectionMethod: z.string(),
+  confirmationStatus: z.enum(["inferred", "confirmed", "rejected"]),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type RepositoryDependency = z.infer<typeof repositoryDependencySchema>;
+
+export const planEvidenceMemberSchema = z.object({
+  memberId: z.string(),
+  repositoryId: z.string(),
+  name: z.string(),
+  trustStatus: z.string(),
+  ownership: z.string().nullable(),
+  hasLocalCheckout: z.boolean(),
+  uncommittedChanges: z.number().int().nonnegative().nullable(),
+  lastScannedAt: timestamp.nullable(),
+  facts: z.array(repositoryFactSchema),
+  conflicts: z.array(repositoryConflictSchema),
+});
+export type PlanEvidenceMember = z.infer<typeof planEvidenceMemberSchema>;
+
+export const campaignPlanEvidenceSchema = z.object({
+  campaign: campaignSchema,
+  members: z.array(planEvidenceMemberSchema),
+  edges: z.array(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      confidence: z.number(),
+      confirmationStatus: z.enum(["inferred", "confirmed", "rejected"]),
+      detectionMethod: z.string(),
+    }),
+  ),
+});
+export type CampaignPlanEvidence = z.infer<typeof campaignPlanEvidenceSchema>;
+
+export const edgeRefreshSchema = z.object({
+  repositoriesWithScan: z.number().int().nonnegative(),
+  candidates: z.number().int().nonnegative(),
+  upserted: z.number().int().nonnegative(),
+});
+export type EdgeRefresh = z.infer<typeof edgeRefreshSchema>;
+
+export const devinStatusSchema = z.object({
+  installed: z.boolean(),
+  version: z.string().nullable(),
+  authenticated: z.boolean(),
+  accountEmail: z.string().nullable(),
+  detail: z.string(),
+});
+export type DevinStatus = z.infer<typeof devinStatusSchema>;
+
+export const agentRunSchema = z.object({
+  id: z.string(),
+  agentTaskId: z.string(),
+  provider: z.string(),
+  processId: z.number().int().nullable(),
+  externalRunId: z.string().nullable(),
+  status: z.enum(["starting", "running", "succeeded", "failed", "cancelled", "timed_out"]),
+  exitCode: z.number().int().nullable(),
+  startedAt: timestamp,
+  completedAt: timestamp.nullable(),
+  redactedOutputPath: z.string().nullable(),
+  error: json.nullable(),
+});
+export type AgentRun = z.infer<typeof agentRunSchema>;

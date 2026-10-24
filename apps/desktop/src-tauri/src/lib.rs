@@ -1,6 +1,7 @@
 mod commands;
 mod credentials;
 mod db;
+mod devin;
 mod discovery;
 mod environment;
 mod error;
@@ -30,6 +31,10 @@ use crate::process::{ExecutionPolicy, ProcessRunner};
 
 pub use crate::process::{run_diagnostic_ticker, DIAGNOSTIC_TICKER_FLAG};
 
+/// Live Devin dispatch processes: agent task id -> (runner, run id).
+pub type DevinRuns =
+    Arc<std::sync::Mutex<std::collections::HashMap<String, (process::ProcessRunner, String)>>>;
+
 pub struct AppState {
     pub db: Arc<Database>,
     pub data_dir: PathBuf,
@@ -41,6 +46,8 @@ pub struct AppState {
     pub discoveries: discovery::Discoveries,
     pub scans: scanner::Scans,
     pub clones: workspace::clone::Clones,
+    /// Live Devin dispatch processes: task id -> (runner, run id).
+    pub devin_runs: DevinRuns,
     /// GitHub endpoints, or the configuration error to report.
     pub github_config: Result<github::client::GithubConfig, error::AppError>,
     pub github_flows: github::DeviceFlows,
@@ -127,6 +134,7 @@ impl AppState {
             discoveries: discovery::Discoveries::default(),
             scans: scanner::Scans::default(),
             clones: workspace::clone::Clones::default(),
+            devin_runs: DevinRuns::default(),
             github_config: github::client::GithubConfig::from_env(),
             github_flows: github::DeviceFlows::default(),
             github_requests: github::Requests::default(),
@@ -201,6 +209,25 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::link_existing_clone,
         commands::get_submission_readiness,
         commands::open_submission_file,
+        commands::create_campaign,
+        commands::update_campaign,
+        commands::delete_campaign,
+        commands::set_campaign_status,
+        commands::add_campaign_repositories,
+        commands::remove_campaign_repository,
+        commands::exclude_campaign_repository,
+        commands::include_campaign_repository,
+        commands::resolve_member_review,
+        commands::campaign_plan_evidence,
+        commands::apply_campaign_plan,
+        commands::refresh_dependency_edges,
+        commands::list_repository_dependencies,
+        commands::devin_status,
+        commands::create_agent_task,
+        commands::approve_agent_task,
+        commands::dispatch_agent_task,
+        commands::cancel_agent_task,
+        commands::list_agent_runs,
     ])
 }
 
@@ -881,5 +908,169 @@ mod ipc_tests {
             .unwrap()
             .iter()
             .any(|e| e["eventType"] == "repository.record_removed"));
+    }
+
+    #[test]
+    fn campaign_plan_task_approval_and_dispatch_gates() {
+        let h = harness();
+        let checkout = h.dir.path().join("orders-api");
+        std::fs::create_dir(&checkout).unwrap();
+        let state = h._app.state::<AppState>();
+        let repository = state
+            .db
+            .write(|c| {
+                db::repositories::create(
+                    c,
+                    &db::repositories::NewRepository {
+                        source_type: db::repositories::SourceType::Local,
+                        name: "orders-api".into(),
+                        local_path: Some(checkout.display().to_string()),
+                        remote_url: None,
+                        github: None,
+                        default_branch: None,
+                    },
+                )
+            })
+            .unwrap();
+        let campaign = invoke(
+            &h,
+            "create_campaign",
+            json!({
+                "definition": {
+                    "name": "Node 22",
+                    "objective": "Upgrade Node.js 18 to Node.js 22",
+                    "migrationType": "runtime_upgrade",
+                    "sourceCondition": { "runtime": "node", "major": "18" },
+                    "targetCondition": { "runtime": "node", "major": "22" },
+                    "constraints": { "deadline": "2026-12-01" },
+                    "verificationProfile": "default",
+                    "maximumParallelTasks": 1
+                },
+                "repositoryIds": [repository.id]
+            }),
+        )
+        .unwrap();
+        let cid = campaign["id"].as_str().unwrap().to_string();
+        assert_eq!(campaign["status"], "draft");
+
+        let evidence = invoke(&h, "campaign_plan_evidence", json!({ "campaignId": cid })).unwrap();
+        assert_eq!(evidence["members"].as_array().unwrap().len(), 1);
+        assert_eq!(evidence["members"][0]["hasLocalCheckout"], true);
+        assert!(evidence["members"][0]["lastScannedAt"].is_null());
+
+        let applied = invoke(
+            &h,
+            "apply_campaign_plan",
+            json!({
+                "campaignId": cid,
+                "markReady": true,
+                "members": [{
+                    "repositoryId": repository.id,
+                    "classification": "affected",
+                    "riskScore": 0.2,
+                    "reasons": ["On source version: node=18 (package.json/engines/node)."],
+                    "waveNumber": 1,
+                    "reviewRequired": true
+                }]
+            }),
+        )
+        .unwrap();
+        assert_eq!(applied["status"], "ready");
+
+        let members = invoke(
+            &h,
+            "list_campaign_repositories",
+            json!({ "campaignId": cid, "params": {} }),
+        )
+        .unwrap();
+        let member_id = members["items"][0]["id"].as_str().unwrap().to_string();
+        assert_eq!(members["items"][0]["reviewRequired"], true);
+
+        let task = invoke(&h, "create_agent_task", json!({ "memberId": member_id })).unwrap();
+        let tid = task["id"].as_str().unwrap().to_string();
+        let body = task["instructionsMarkdown"].as_str().unwrap();
+        assert!(body.contains("Upgrade Node.js 18 to Node.js 22"));
+        assert!(body.contains("Do not push"));
+        assert_eq!(task["instructionsHash"].as_str().unwrap().len(), 64);
+        assert!(task["approvedAt"].is_null());
+        // A second open task for the same member is refused.
+        assert_eq!(
+            invoke(&h, "create_agent_task", json!({ "memberId": member_id })).unwrap_err()["code"],
+            "VALIDATION_FAILED"
+        );
+
+        // Dispatch without confirm, then without approval: refused.
+        assert_eq!(
+            invoke(
+                &h,
+                "dispatch_agent_task",
+                json!({ "id": tid, "confirm": false })
+            )
+            .unwrap_err()["code"],
+            "VALIDATION_FAILED"
+        );
+        let err = invoke(
+            &h,
+            "dispatch_agent_task",
+            json!({ "id": tid, "confirm": true }),
+        )
+        .unwrap_err();
+        assert!(err["message"].as_str().unwrap().contains("approved"));
+
+        let approved = invoke(
+            &h,
+            "approve_agent_task",
+            json!({ "id": tid, "confirm": true }),
+        )
+        .unwrap();
+        assert!(approved["approvedAt"].is_string());
+
+        // Review flag still set: refused.
+        let err = invoke(
+            &h,
+            "dispatch_agent_task",
+            json!({ "id": tid, "confirm": true }),
+        )
+        .unwrap_err();
+        assert!(err["message"].as_str().unwrap().contains("review"));
+        invoke(
+            &h,
+            "resolve_member_review",
+            json!({ "memberId": member_id, "confirm": true }),
+        )
+        .unwrap();
+
+        // Repository still untrusted: refused before any process starts.
+        let err = invoke(
+            &h,
+            "dispatch_agent_task",
+            json!({ "id": tid, "confirm": true }),
+        )
+        .unwrap_err();
+        assert!(err["message"].as_str().unwrap().contains("trusted"));
+        let runs = invoke(
+            &h,
+            "list_agent_runs",
+            json!({ "taskId": tid, "params": {} }),
+        )
+        .unwrap();
+        assert_eq!(runs["items"].as_array().unwrap().len(), 0);
+
+        let events = invoke(&h, "list_activity", json!({ "query": { "limit": 100 } })).unwrap();
+        let kinds: Vec<&str> = events["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["eventType"].as_str())
+            .collect();
+        for k in [
+            "campaign.created",
+            "campaign.plan_applied",
+            "agent.task_created",
+            "agent.task_approved",
+            "campaign.review_resolved",
+        ] {
+            assert!(kinds.contains(&k), "missing {k}");
+        }
     }
 }

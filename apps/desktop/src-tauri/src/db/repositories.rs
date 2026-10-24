@@ -388,6 +388,16 @@ pub fn create(conn: &Connection, new: &NewRepository) -> AppResult<Repository> {
     get(conn, &id)
 }
 
+/// Every registered repository, stable order. Used by dependency-edge
+/// derivation; the UI uses the paginated `list`.
+pub fn all(conn: &Connection) -> AppResult<Vec<Repository>> {
+    let mut stmt = conn.prepare(&format!("{REPO_COLUMNS} FROM repositories ORDER BY id"))?;
+    let rows = stmt
+        .query_map([], map_repo)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn get(conn: &Connection, id: &str) -> AppResult<Repository> {
     conn.query_row(
         &format!("{REPO_COLUMNS} FROM repositories WHERE id = ?1"),

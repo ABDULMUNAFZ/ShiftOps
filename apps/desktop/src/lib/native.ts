@@ -2,11 +2,17 @@ import {
   activeProcessSchema,
   activityEventSchema,
   agentTaskSchema,
+  agentRunSchema,
+  campaignPlanEvidenceSchema,
+  devinStatusSchema,
+  edgeRefreshSchema,
+  repositoryDependencySchema,
   appErrorSchema,
   appInfoSchema,
   branchInfoSchema,
   cloneEventSchema,
   clonePreviewSchema,
+  campaignRepositorySchema,
   campaignSchema,
   credentialMetadataSchema,
   databaseHealthSchema,
@@ -145,6 +151,39 @@ export const native = {
 
   listRepositories: (params: ListParams) => call("list_repositories", pageSchema(repositorySchema), { params }),
   listCampaigns: (params: ListParams) => call("list_campaigns", pageSchema(campaignSchema), { params }),
+  getCampaign: (id: string) => call("get_campaign", campaignSchema, { id }),
+  listCampaignRepositories: (campaignId: string, params: ListParams) =>
+    call("list_campaign_repositories", pageSchema(campaignRepositorySchema), { campaignId, params }),
+  createCampaign: (definition: Record<string, unknown>, repositoryIds: string[]) =>
+    call("create_campaign", campaignSchema, { definition, repositoryIds }),
+  updateCampaign: (id: string, definition: Record<string, unknown>) =>
+    call("update_campaign", campaignSchema, { id, definition }),
+  deleteCampaign: (id: string) => call("delete_campaign", campaignSchema, { id, confirm: true }),
+  setCampaignStatus: (id: string, status: string) => call("set_campaign_status", campaignSchema, { id, status }),
+  addCampaignRepositories: (campaignId: string, repositoryIds: string[]) =>
+    call("add_campaign_repositories", campaignSchema, { campaignId, repositoryIds }),
+  removeCampaignRepository: (memberId: string) =>
+    call("remove_campaign_repository", campaignRepositorySchema, { memberId, confirm: true }),
+  excludeCampaignRepository: (memberId: string, reason: string) =>
+    call("exclude_campaign_repository", campaignRepositorySchema, { memberId, reason, confirm: true }),
+  includeCampaignRepository: (memberId: string) =>
+    call("include_campaign_repository", campaignRepositorySchema, { memberId }),
+  resolveMemberReview: (memberId: string) =>
+    call("resolve_member_review", campaignRepositorySchema, { memberId, confirm: true }),
+  campaignPlanEvidence: (campaignId: string) =>
+    call("campaign_plan_evidence", campaignPlanEvidenceSchema, { campaignId }),
+  applyCampaignPlan: (campaignId: string, members: unknown[], markReady: boolean) =>
+    call("apply_campaign_plan", campaignSchema, { campaignId, members, markReady }),
+  refreshDependencyEdges: () => call("refresh_dependency_edges", edgeRefreshSchema, {}),
+  listRepositoryDependencies: (repositoryId: string, params: ListParams) =>
+    call("list_repository_dependencies", pageSchema(repositoryDependencySchema), { repositoryId, params }),
+  devinStatus: () => call("devin_status", devinStatusSchema),
+  createAgentTask: (memberId: string) => call("create_agent_task", agentTaskSchema, { memberId }),
+  approveAgentTask: (id: string) => call("approve_agent_task", agentTaskSchema, { id, confirm: true }),
+  dispatchAgentTask: (id: string) => call("dispatch_agent_task", agentTaskSchema, { id, confirm: true }),
+  cancelAgentTask: (id: string) => call("cancel_agent_task", agentTaskSchema, { id }),
+  listAgentRuns: (taskId: string, params: ListParams) =>
+    call("list_agent_runs", pageSchema(agentRunSchema), { taskId, params }),
   listAgentTasks: (query: ListParams) => call("list_agent_tasks", pageSchema(agentTaskSchema), { query }),
   listVerificationRuns: (query: ListParams) =>
     call("list_verification_runs", pageSchema(verificationRunSchema), { query }),

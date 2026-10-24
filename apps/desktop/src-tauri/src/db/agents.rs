@@ -8,6 +8,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::Digest;
 
 use super::{
     expect_changed, json_col_opt, json_text, new_id, paginate, require_text, string_enum, Filter,
@@ -66,6 +67,12 @@ pub struct AgentTask {
     pub commit_sha: Option<String>,
     pub pull_request_url: Option<String>,
     pub status: TaskStatus,
+    /// SHA-256 of `instructions_markdown`, pinned at creation. Approval and
+    /// dispatch always refer to this exact content.
+    pub instructions_hash: Option<String>,
+    /// Set once a human approves the task for dispatch. Required before any
+    /// Devin process is started.
+    pub approved_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub created_at: String,
@@ -94,7 +101,7 @@ pub struct TaskProgress {
 
 const TASK_COLUMNS: &str = "SELECT id, campaign_repository_id, provider, execution_mode, instructions_markdown, \
     external_session_id, external_session_url, worktree_path, branch_name, commit_sha, pull_request_url, status, \
-    started_at, completed_at, created_at, updated_at";
+    instructions_hash, approved_at, started_at, completed_at, created_at, updated_at";
 
 fn map_task(r: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
     Ok(AgentTask {
@@ -110,6 +117,8 @@ fn map_task(r: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
         commit_sha: r.get("commit_sha")?,
         pull_request_url: r.get("pull_request_url")?,
         status: r.get("status")?,
+        instructions_hash: r.get("instructions_hash")?,
+        approved_at: r.get("approved_at")?,
         started_at: r.get("started_at")?,
         completed_at: r.get("completed_at")?,
         created_at: r.get("created_at")?,
@@ -121,12 +130,30 @@ pub fn create_task(conn: &Connection, new: &NewAgentTask) -> AppResult<AgentTask
     require_text(&new.instructions_markdown, "Instructions", 200_000)?;
     let id = new_id();
     let now = time_util::now();
+    let hash =
+        crate::scanner::files::hex(&sha2::Sha256::digest(new.instructions_markdown.as_bytes()));
     conn.execute(
         "INSERT INTO agent_tasks (id, campaign_repository_id, provider, execution_mode, instructions_markdown,
-             status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6)",
-        params![id, new.campaign_repository_id, new.provider, new.execution_mode, new.instructions_markdown, now],
+             status, instructions_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?7)",
+        params![id, new.campaign_repository_id, new.provider, new.execution_mode, new.instructions_markdown, hash, now],
     )?;
     get_task(conn, &id)
+}
+
+/// Record the human approval required before dispatch. Idempotent.
+pub fn approve_task(conn: &Connection, id: &str) -> AppResult<AgentTask> {
+    let current = get_task(conn, id)?;
+    if current.status.is_terminal() {
+        return Err(AppError::validation(format!(
+            "Agent task is already {}.",
+            current.status.as_str()
+        )));
+    }
+    conn.execute(
+        "UPDATE agent_tasks SET approved_at = COALESCE(approved_at, ?2), updated_at = ?2 WHERE id = ?1",
+        params![id, time_util::now()],
+    )?;
+    get_task(conn, id)
 }
 
 pub fn get_task(conn: &Connection, id: &str) -> AppResult<AgentTask> {
@@ -269,6 +296,28 @@ pub fn start_run(
         params![id, task_id, provider, process_id, external_run_id, time_util::now()],
     )?;
     get_run(conn, &id)
+}
+
+/// The run row bound to a process-runner run id, if any.
+pub fn run_by_external_id(conn: &Connection, external_run_id: &str) -> AppResult<Option<AgentRun>> {
+    conn.query_row(
+        &format!("{RUN_COLUMNS} FROM agent_runs WHERE external_run_id = ?1 ORDER BY started_at DESC LIMIT 1"),
+        [external_run_id],
+        map_run,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// The newest task for a campaign membership, if one exists.
+pub fn task_for_member(conn: &Connection, member_id: &str) -> AppResult<Option<AgentTask>> {
+    conn.query_row(
+        &format!("{TASK_COLUMNS} FROM agent_tasks WHERE campaign_repository_id = ?1 ORDER BY created_at DESC LIMIT 1"),
+        [member_id],
+        map_task,
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 pub fn get_run(conn: &Connection, id: &str) -> AppResult<AgentRun> {

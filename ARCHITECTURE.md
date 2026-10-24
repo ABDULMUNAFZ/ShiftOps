@@ -7,7 +7,7 @@ A **campaign** is one codebase-wide change. It moves through these stages:
 1. **Define**: the change specification, implementer instructions and verification policy.
 2. **Discover**: find affected repositories (local checkouts, GitHub organisations).
 3. **Plan**: order repositories by dependency into parallel **waves** (`planWaves` in `packages/core`).
-4. **Delegate**: one Devin session per repository (`packages/devin` contract).
+4. **Delegate**: one approval-gated local Devin CLI session per repository (`devin.rs`).
 5. **Verify**: ShiftOps re-runs the policy's commands against the agent's branch (`packages/verification`).
 6. **Track**: campaign state is persisted locally and shown per repository.
 
@@ -92,7 +92,7 @@ IPC uses camelCase throughout, so the contract's `technical_details` and `sugges
 - **Slots**:
   - GitHub personal access token: manageable.
   - GitHub OAuth token: reserved for the device flow, so not manually storable.
-  - Devin API token: manageable.
+  - Devin API token: manageable slot kept for a future cloud API path; the shipped Devin integration uses the CLI's own login and never reads this slot.
 - **Writes**:
   - `put` writes and verifies by reading back.
   - `store_credential` and `delete_credential` update metadata and record activity, with no value.
@@ -200,6 +200,15 @@ Events are emitted on `shiftops://process`. `lib/processStore.ts` keeps the last
 `readiness.rs` collects evidence from the ShiftOps checkout through the exact read-only Git policy. It checks required files, remote/HEAD/origin state, dirty and ahead state, participant TODOs, a bounded tracked-file secret scan and the optional gitignored validation record. Secret matches return only a path and rule name. A pure status function is covered independently; it never produces `Submitted`. The desktop view exposes refresh, checklist copy, validated document opening and the GitHub repository link.
 
 - **Cancellation:** browse, details and pull-request listing accept a `requestId`, cancelled through `github_cancel_request`.
+
+## Campaign planning and Devin delegation
+
+- **Evidence**: `campaign_plan_evidence` returns each member's repository state, latest scan facts and conflicts, and every stored dependency edge touching a member.
+- **Planner**: `planCampaign` in `packages/core/src/planning.ts` is pure and deterministic. It classifies each member against the goal (`runtime`, source and target majors), scores risk from cited evidence, puts blockers and cycle members in wave 0, and orders the rest with `planWaves`. Edges outside the campaign are reported as unknown; rejected edges are ignored.
+- **Persistence**: `apply_campaign_plan` writes classification, risk, reasons, wave and `review_required` per member (migration 9) and moves the campaign to `ready`.
+- **Edges**: `refresh_dependency_edges` matches declared dependency names to registered repository names or GitHub repo names and upserts `inferred` edges with the fact as evidence (confidence 0.85 for `workspace:`/`file:`/`link:` specifiers, else 0.6). User confirmation or rejection survives refresh.
+- **Tasks**: `create_agent_task` builds instructions with `devin::build_instructions` and stores their SHA-256 (`instructions_hash`). `approve_agent_task` records `approved_at`. `dispatch_agent_task` checks every gate, starts the policy-checked `devin -p` process in the checkout, records an `agent_runs` row, and a background task maps the exit to task/member status (`awaiting_review` on success). `cancel_agent_task` kills the process group.
+- **Status**: `devin_status` runs `devin version` and `devin auth status`.
 
 ## Validation
 
