@@ -780,3 +780,24 @@ export const cloneEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("completed"), result: cloneResultSchema }),
 ]);
 export type CloneEvent = z.infer<typeof cloneEventSchema>;
+
+export const submissionReadinessSchema = z.object({
+  status: z.enum(["not_ready", "needs_participant_input", "ready_for_final_verification", "submitted"]),
+  sourceRoot: z.string(),
+  requiredFiles: z.record(z.string(), z.boolean()),
+  remoteUrl: z.string().nullable(),
+  headSha: z.string().nullable(),
+  originMainSha: z.string().nullable(),
+  workingTreeClean: z.boolean(),
+  commitsAhead: z.number().int().nonnegative().nullable(),
+  pushed: z.boolean(),
+  todoCount: z.number().int().nonnegative(),
+  secretFindings: z.array(z.object({ path: z.string(), rule: z.string() })),
+  trackedFilesScanned: z.number().int().nonnegative(),
+  validation: z
+    .object({ commitSha: z.string(), recordedAt: timestamp, passed: z.boolean(), summary: z.string() })
+    .nullable(),
+  finalSha: z.string().nullable(),
+  reasons: z.array(z.string()),
+});
+export type SubmissionReadiness = z.infer<typeof submissionReadinessSchema>;

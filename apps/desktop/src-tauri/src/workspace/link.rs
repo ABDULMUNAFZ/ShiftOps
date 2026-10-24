@@ -2,7 +2,7 @@
 //! is `external`: ShiftOps reads it with read-only Git and never modifies or
 //! deletes its files.
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 use std::path::Path;
 
 use serde::Serialize;

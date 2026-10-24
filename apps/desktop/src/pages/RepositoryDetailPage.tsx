@@ -7,13 +7,16 @@ import type {
 } from "@shiftops/core";
 import { Badge, Button, Card, EmptyState, Spinner, type BadgeTone } from "@shiftops/ui";
 import { ArrowLeft, GitBranch, Play, RefreshCw, Square, TriangleAlert } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { ActivityListForEntity } from "../features/activity/ActivityCentre";
 import { GithubPullRequests } from "../features/github/GithubBrowser";
 import { useRepositoryScan } from "../features/repositories/useScan";
 import { useRepository, useRepositoryBranches, useRepositoryIntelligence } from "../lib/queries";
+import { invalidateAfter } from "../lib/invalidation";
+import { native } from "../lib/native";
 import { DefinitionList } from "./Page";
 
 const TABS = [
@@ -449,6 +452,20 @@ export function RepositoryDetailPage() {
   const repo = useRepository(id);
   const intel = useRepositoryIntelligence(id);
   const [tab, setTab] = useState<Tab>("Overview");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const trust = useMutation({
+    mutationFn: (value: Repository["trustStatus"]) => native.setRepositoryTrust(id, value),
+    onSuccess: async () => invalidateAfter(client, "repositories"),
+  });
+  const remove = useMutation({
+    mutationFn: () => native.removeRepositoryRecord(id),
+    onSuccess: async () => {
+      await invalidateAfter(client, "repositories");
+      void navigate("/repositories");
+    },
+  });
   const counts = useMemo<Partial<Record<Tab, number>>>(() => {
     const i = intel.data;
     if (!i) return {};
@@ -506,8 +523,44 @@ export function RepositoryDetailPage() {
           </h1>
           <p className="selectable truncate font-mono text-xs text-muted">{r.localPath ?? r.remoteUrl}</p>
         </div>
-        <ScanControls repo={r} intel={intel.data} />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <label className="flex items-center gap-2 text-xs text-muted">
+            Trust
+            <select
+              aria-label="Repository trust"
+              value={r.trustStatus}
+              disabled={trust.isPending}
+              onChange={(event) => trust.mutate(event.target.value as Repository["trustStatus"])}
+              className="h-7 rounded-md border border-border bg-surface px-2 text-fg"
+            >
+              <option value="untrusted">Untrusted</option>
+              <option value="trusted">Trusted</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </label>
+          <ScanControls repo={r} intel={intel.data} />
+          {confirmDelete ? (
+            <span role="alertdialog" aria-label="Forget repository" className="flex items-center gap-2 text-xs">
+              This removes only the ShiftOps record. Files stay untouched.
+              <Button size="sm" variant="danger" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                Forget record
+              </Button>
+              <Button size="sm" onClick={() => setConfirmDelete(false)}>
+                Keep
+              </Button>
+            </span>
+          ) : (
+            <Button size="sm" variant="ghost" className="text-danger" onClick={() => setConfirmDelete(true)}>
+              Forget…
+            </Button>
+          )}
+        </div>
       </div>
+      {trust.isError || remove.isError ? (
+        <div className="px-6 pt-4">
+          <ErrorDisplay title="Repository update failed" error={trust.error ?? remove.error} />
+        </div>
+      ) : null}
       <div className="flex-1 p-6">
         <Card>
           <Tabs active={tab} onChange={setTab} counts={counts} />

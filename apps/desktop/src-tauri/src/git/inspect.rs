@@ -6,7 +6,10 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use super::policy::{command_args, GIT_ENV, READONLY_COMMANDS};
+use super::policy::{
+    command_args, BRANCHES_COMMAND, CURRENT_BRANCH_COMMAND, DEFAULT_BRANCH_COMMAND, GIT_ENV,
+    HEAD_COMMAND, LAST_COMMIT_COMMAND, ORIGIN_URL_COMMAND, STATUS_COMMAND,
+};
 use super::remote::{parse_remote, RemoteInfo};
 use crate::process::{CommandCategory, CommandSpec, ProcessRunner, Program, RunStatus};
 use crate::shell_path::SearchPath;
@@ -291,17 +294,23 @@ pub async fn collect(
         }
     };
 
-    let branch = first_line(take(git.run(READONLY_COMMANDS[0]).await, "current branch"));
-    let head = first_line(take(git.run(READONLY_COMMANDS[1]).await, "HEAD commit"));
-    let default_branch = first_line(take(git.run(READONLY_COMMANDS[2]).await, "default branch"))
-        .map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_string());
+    let branch = first_line(take(
+        git.run(CURRENT_BRANCH_COMMAND).await,
+        "current branch",
+    ));
+    let head = first_line(take(git.run(HEAD_COMMAND).await, "HEAD commit"));
+    let default_branch = first_line(take(
+        git.run(DEFAULT_BRANCH_COMMAND).await,
+        "default branch",
+    ))
+    .map(|b| b.strip_prefix("origin/").unwrap_or(&b).to_string());
     let origin =
-        first_line(take(git.run(READONLY_COMMANDS[3]).await, "origin")).map(|u| parse_remote(&u));
-    let last_commit_at = first_line(take(git.run(READONLY_COMMANDS[5]).await, "last commit"));
+        first_line(take(git.run(ORIGIN_URL_COMMAND).await, "origin")).map(|u| parse_remote(&u));
+    let last_commit_at = first_line(take(git.run(LAST_COMMIT_COMMAND).await, "last commit"));
 
     let risky = risky_config(git_dir);
     let working_tree = if risky.is_none() {
-        take(git.run(READONLY_COMMANDS[4]).await, "status").map(|s| parse_status(&s))
+        take(git.run(STATUS_COMMAND).await, "status").map(|s| parse_status(&s))
     } else {
         None
     };
@@ -371,7 +380,7 @@ pub async fn branches(
         search,
         cwd: repo,
     };
-    match git.run(READONLY_COMMANDS[6]).await? {
+    match git.run(BRANCHES_COMMAND).await? {
         Some(out) => Ok(parse_branches(&out)),
         None => Err("git for-each-ref failed".into()),
     }

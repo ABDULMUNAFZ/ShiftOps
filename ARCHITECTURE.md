@@ -194,6 +194,11 @@ Events are emitted on `shiftops://process`. `lib/processStore.ts` keeps the last
 - **Import modes:** metadata-only creates an untrusted record; managed clone uses the single policy-built mutating Git command inside an explicitly approved workspace; link-existing inspects a checkout read-only and marks it external. All three converge on the same repository id.
 - **Managed clone boundary:** destinations are exactly two path segments below the canonical approved root. Hooks, templates, submodules, interactive credentials, LFS smudging and non-HTTPS transports are disabled. Clone progress is emitted on `shiftops://clone`; failures and cancellations retain their folder until an exact-path confirmed cleanup passes all safety checks.
 - **Local link boundary:** normalized GitHub identities are compared before linking. A mismatch override records the actual identity and survives rediscovery. External checkouts are never modified or deleted.
+
+## Submission Readiness
+
+`readiness.rs` collects evidence from the ShiftOps checkout through the exact read-only Git policy. It checks required files, remote/HEAD/origin state, dirty and ahead state, participant TODOs, a bounded tracked-file secret scan and the optional gitignored validation record. Secret matches return only a path and rule name. A pure status function is covered independently; it never produces `Submitted`. The desktop view exposes refresh, checklist copy, validated document opening and the GitHub repository link.
+
 - **Cancellation:** browse, details and pull-request listing accept a `requestId`, cancelled through `github_cancel_request`.
 
 ## Validation

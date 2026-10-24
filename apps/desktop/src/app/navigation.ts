@@ -1,4 +1,14 @@
-import { Bot, FolderGit2, LayoutDashboard, type LucideIcon, Plug, Settings, ShieldCheck, Workflow } from "lucide-react";
+import {
+  Bot,
+  ClipboardCheck,
+  FolderGit2,
+  LayoutDashboard,
+  type LucideIcon,
+  Plug,
+  Settings,
+  ShieldCheck,
+  Workflow,
+} from "lucide-react";
 
 export interface NavItem {
   path: string;
@@ -16,6 +26,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: "/verification", label: "Verification", icon: ShieldCheck, shortcut: "5" },
   { path: "/integrations", label: "Integrations", icon: Plug, shortcut: "6" },
   { path: "/settings", label: "Settings", icon: Settings, shortcut: "7" },
+  { path: "/readiness", label: "Submission Readiness", icon: ClipboardCheck, shortcut: "8" },
 ];
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);

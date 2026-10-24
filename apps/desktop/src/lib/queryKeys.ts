@@ -46,4 +46,5 @@ export const queryKeys = {
   agentTasks: { list: (params: ListParams) => ["agent-tasks", "list", params] as const },
   verificationRuns: { list: (params: ListParams) => ["verification-runs", "list", params] as const },
   migrationPatterns: { list: (params: ListParams) => ["migration-patterns", "list", params] as const },
+  readiness: ["submission-readiness"] as const,
 };

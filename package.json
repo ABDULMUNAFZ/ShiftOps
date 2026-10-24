@@ -19,6 +19,7 @@
     "lint:rust": "cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings",
     "fmt:rust": "cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check",
     "check": "pnpm format:check && pnpm typecheck && pnpm lint && pnpm test && pnpm fmt:rust && pnpm test:rust && pnpm lint:rust",
+    "validate:record": "node scripts/record-validation.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

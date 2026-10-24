@@ -201,6 +201,7 @@ function RepositoryTable() {
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted">
                 <th className="px-4 py-2 font-medium">Repository</th>
+                <th className="px-2 py-2 font-medium">Source</th>
                 <th className="px-2 py-2 font-medium">GitHub</th>
                 <th className="px-2 py-2 font-medium">Technology</th>
                 <th className="px-2 py-2 font-medium">Runtime</th>
@@ -219,6 +220,16 @@ function RepositoryTable() {
                       {r.name}
                     </Link>
                     <p className="selectable font-mono text-[11px] text-muted">{r.localPath ?? r.remoteUrl}</p>
+                  </td>
+                  <td className="px-2 py-2 text-xs">
+                    <Badge>
+                      {r.ownership === "shiftops_managed"
+                        ? "managed clone"
+                        : r.ownership === "external"
+                          ? "external clone"
+                          : "metadata only"}
+                    </Badge>
+                    <p className="mt-1 text-[11px] text-muted">{r.sourceType}</p>
                   </td>
                   <td className="px-2 py-2 font-mono text-xs">
                     {r.githubOwner ? `${r.githubOwner}/${r.githubRepo}` : <span className="text-muted">—</span>}
@@ -265,6 +276,7 @@ function RepositoryTable() {
                         {r.scanSummary && r.scanSummary.conflicts > 0 ? (
                           <Badge tone="danger">{r.scanSummary.conflicts} conflicts</Badge>
                         ) : null}
+                        <span className="mt-1 block text-[11px] text-muted">{formatTime(r.lastScannedAt)}</span>
                       </span>
                     )}
                   </td>

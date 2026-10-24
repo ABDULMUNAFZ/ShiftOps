@@ -123,6 +123,8 @@ Then use **Repositories → Browse GitHub** and choose one of three modes:
 - **Clone into managed workspace** previews a new destination under a folder you explicitly approve, streams clone progress and scans the checkout after success.
 - **Link existing clone** compares its normalized remote with the GitHub repository and requires an explicit override when they differ. Existing clones remain external and are never modified or deleted.
 
+Repository detail lets you explicitly change trust or forget only the ShiftOps record. Forgetting a record never deletes checkout files. **Submission Readiness** derives the hackathon checklist from the current Git state, required documents, participant TODOs, validation evidence and a bounded tracked-secret review; it never marks the project Submitted automatically.
+
 ## Commands
 
 ```sh

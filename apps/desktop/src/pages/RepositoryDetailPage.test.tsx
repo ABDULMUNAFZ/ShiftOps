@@ -15,6 +15,8 @@ const native = vi.hoisted(() => ({
   githubStatus: vi.fn(),
   githubListPullRequests: vi.fn(),
   openExternalUrl: vi.fn(),
+  setRepositoryTrust: vi.fn(),
+  removeRepositoryRecord: vi.fn(),
 }));
 const events = vi.hoisted(() => ({ handler: null as null | ((e: ScanEvent) => void) }));
 vi.mock("../lib/native", () => ({
@@ -159,6 +161,8 @@ beforeEach(() => {
     account: null,
     credentialStored: false,
   });
+  native.setRepositoryTrust.mockResolvedValue({ ...repo, trustStatus: "trusted" });
+  native.removeRepositoryRecord.mockResolvedValue(repo);
 });
 
 describe("RepositoryDetailPage", () => {
@@ -235,5 +239,20 @@ describe("RepositoryDetailPage", () => {
       }),
     );
     expect(await screen.findByText(/reused it/)).toBeTruthy();
+  });
+
+  it("changes trust explicitly and confirms record-only removal", async () => {
+    renderPage();
+    await screen.findByText("orders-api");
+    fireEvent.change(screen.getByLabelText("Repository trust"), { target: { value: "trusted" } });
+    await waitFor(() => expect(native.setRepositoryTrust).toHaveBeenCalledWith("r1", "trusted"));
+    fireEvent.click(screen.getByRole("button", { name: "Forget…" }));
+    expect(native.removeRepositoryRecord).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(screen.getByRole("alertdialog", { name: "Forget repository" })).getByRole("button", {
+        name: "Forget record",
+      }),
+    );
+    await waitFor(() => expect(native.removeRepositoryRecord).toHaveBeenCalledWith("r1"));
   });
 });

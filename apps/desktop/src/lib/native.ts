@@ -36,6 +36,7 @@ import {
   repositoryRootSchema,
   repositoryScanSchema,
   scanEventSchema,
+  submissionReadinessSchema,
   repositorySchema,
   ShiftOpsError,
   verificationRunSchema,
@@ -180,6 +181,9 @@ export const native = {
     call("get_repository_intelligence", repositoryIntelligenceSchema, { repositoryId }),
   listRepositoryScans: (repositoryId: string, params: ListParams) =>
     call("list_repository_scans", pageSchema(repositoryScanSchema), { repositoryId, params }),
+  setRepositoryTrust: (id: string, trust: "untrusted" | "trusted" | "blocked") =>
+    call("set_repository_trust", repositorySchema, { id, trust, confirm: true }),
+  removeRepositoryRecord: (id: string) => call("remove_repository_record", repositorySchema, { id, confirm: true }),
 
   githubStatus: () => call("github_status", githubStatusSchema),
   githubStartDeviceFlow: () => call("github_start_device_flow", deviceFlowStartSchema),
@@ -242,6 +246,8 @@ export const native = {
       z.object({ repository: repositorySchema, inspection: linkInspectionSchema, scanStarted: z.boolean() }),
       { githubRepositoryId, path, mismatchConfirmation: mismatchConfirmation ?? null },
     ),
+  getSubmissionReadiness: () => call("get_submission_readiness", submissionReadinessSchema),
+  openSubmissionFile: (name: string) => call("open_submission_file", nothing, { name }),
 };
 
 export const CLONE_EVENT = "shiftops://clone";

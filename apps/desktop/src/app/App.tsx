@@ -17,6 +17,7 @@ import { RepositoryDetailPage } from "../pages/RepositoryDetailPage";
 import { IntegrationsPage } from "../pages/IntegrationsPage";
 import { OverviewPage } from "../pages/OverviewPage";
 import { SettingsPage } from "../pages/SettingsPage";
+import { SubmissionReadinessPage } from "../pages/SubmissionReadinessPage";
 import { Shell } from "./Shell";
 
 // Hash routing: the production bundle is served from the Tauri asset
@@ -35,6 +36,7 @@ const router = createHashRouter([
       { path: "verification", element: <VerificationPage /> },
       { path: "integrations", element: <IntegrationsPage /> },
       { path: "settings", element: <SettingsPage /> },
+      { path: "readiness", element: <SubmissionReadinessPage /> },
       { path: "about", element: <AboutPage /> },
     ],
   },

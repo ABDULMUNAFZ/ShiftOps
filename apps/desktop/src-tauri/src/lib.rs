@@ -9,6 +9,7 @@ mod github;
 mod logging;
 mod paths;
 mod process;
+mod readiness;
 mod redact;
 mod scanner;
 mod shell_path;
@@ -171,6 +172,8 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::cancel_repository_scan,
         commands::get_repository_intelligence,
         commands::list_repository_scans,
+        commands::set_repository_trust,
+        commands::remove_repository_record,
         commands::github_status,
         commands::github_start_device_flow,
         commands::github_cancel_device_flow,
@@ -196,6 +199,8 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::cleanup_managed_clone,
         commands::inspect_existing_clone,
         commands::link_existing_clone,
+        commands::get_submission_readiness,
+        commands::open_submission_file,
     ])
 }
 
@@ -815,5 +820,66 @@ mod ipc_tests {
         )
         .unwrap_err();
         assert_eq!(missing["code"], "RECORD_NOT_FOUND");
+    }
+
+    #[test]
+    fn repository_management_changes_trust_and_never_deletes_files() {
+        let h = harness();
+        let checkout = h.dir.path().join("external-checkout");
+        std::fs::create_dir(&checkout).unwrap();
+        std::fs::write(checkout.join("keep.txt"), "keep").unwrap();
+        let state = h._app.state::<AppState>();
+        let repository = state
+            .db
+            .write(|c| {
+                db::repositories::create(
+                    c,
+                    &db::repositories::NewRepository {
+                        source_type: db::repositories::SourceType::Local,
+                        name: "external".into(),
+                        local_path: Some(checkout.display().to_string()),
+                        remote_url: None,
+                        github: None,
+                        default_branch: None,
+                    },
+                )
+            })
+            .unwrap();
+        let refused = invoke(
+            &h,
+            "set_repository_trust",
+            json!({ "id": repository.id, "trust": "trusted", "confirm": false }),
+        )
+        .unwrap_err();
+        assert_eq!(refused["code"], "VALIDATION_FAILED");
+        let trusted = invoke(
+            &h,
+            "set_repository_trust",
+            json!({ "id": repository.id, "trust": "trusted", "confirm": true }),
+        )
+        .unwrap();
+        assert_eq!(trusted["trustStatus"], "trusted");
+        let removed = invoke(
+            &h,
+            "remove_repository_record",
+            json!({ "id": repository.id, "confirm": true }),
+        )
+        .unwrap();
+        assert_eq!(removed["id"], repository.id);
+        assert!(
+            checkout.join("keep.txt").exists(),
+            "record removal must not touch files"
+        );
+        let events = invoke(&h, "list_activity", json!({ "query": { "limit": 100 } })).unwrap();
+        assert!(events["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["eventType"] == "repository.trust_changed"));
+        assert!(events["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["eventType"] == "repository.record_removed"));
     }
 }

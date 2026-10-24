@@ -54,7 +54,7 @@ export function IntegrationsPage() {
           <DefinitionList
             rows={[
               { term: "Devin CLI", value: <ToolStatus id="devin" missing="Not detected" /> },
-              { term: "Sessions", value: "Not implemented in this build; ShiftOps is not connected to Devin." },
+              { term: "Sessions", value: "Full Devin workflow arrives in Task 4." },
             ]}
           />
         </Card>

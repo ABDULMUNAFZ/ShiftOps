@@ -634,6 +634,84 @@ pub fn list_repository_scans(
         .read(|c| repositories::list_scans(c, &repository_id, &params))
 }
 
+/// Change trust only after an explicit UI action and record who/what changed.
+#[tauri::command]
+pub fn set_repository_trust(
+    id: String,
+    trust: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<Repository> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Changing repository trust requires confirmation.",
+        ));
+    }
+    let trust = repositories::TrustStatus::parse(&trust)?;
+    state.db.write(|c| {
+        let before = repositories::get(c, &id)?;
+        let updated = repositories::set_trust(c, &id, trust)?;
+        activity::record(
+            c,
+            NewEvent::new(
+                "repository",
+                "repository.trust_changed",
+                if trust == repositories::TrustStatus::Blocked {
+                    Severity::Warning
+                } else {
+                    Severity::Notice
+                },
+                format!(
+                    "Changed {} trust from {} to {}",
+                    before.name,
+                    before.trust_status.as_str(),
+                    trust.as_str()
+                ),
+            )
+            .entity(id)
+            .metadata(json!({ "from": before.trust_status, "to": trust })),
+        )?;
+        Ok(updated)
+    })
+}
+
+/// Forget a repository record. This command never touches its checkout.
+#[tauri::command]
+pub fn remove_repository_record(
+    id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<Repository> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Removing a repository record requires confirmation.",
+        ));
+    }
+    state.db.write(|c| {
+        let repository = repositories::get(c, &id)?;
+        activity::record(
+            c,
+            NewEvent::new(
+                "repository",
+                "repository.record_removed",
+                Severity::Notice,
+                format!(
+                    "Forgot repository {} (no files were deleted)",
+                    repository.name
+                ),
+            )
+            .metadata(json!({
+                "repositoryId": repository.id,
+                "localPath": repository.local_path,
+                "ownership": repository.ownership,
+                "filesDeleted": false,
+            })),
+        )?;
+        repositories::remove(c, &repository.id)?;
+        Ok(repository)
+    })
+}
+
 // ---------------------------------------------------------------- GitHub
 
 fn github_config(state: &AppState) -> AppResult<&crate::github::client::GithubConfig> {
@@ -1012,4 +1090,32 @@ pub async fn link_existing_clone<R: Runtime>(
         inspection,
         scan_started: true,
     })
+}
+
+#[tauri::command]
+pub async fn get_submission_readiness(
+    state: State<'_, AppState>,
+) -> AppResult<crate::readiness::SubmissionReadiness> {
+    crate::readiness::collect(&state.db).await
+}
+
+#[tauri::command]
+pub fn open_submission_file<R: Runtime>(name: String, app: AppHandle<R>) -> AppResult<()> {
+    if !["README.md", "CHANGELOG.md", "AI_USAGE.md", "SUBMISSION.md"].contains(&name.as_str()) {
+        return Err(AppError::validation(
+            "Only a required submission document can be opened.",
+        ));
+    }
+    let path = crate::readiness::source_root()?.join(name);
+    if !path.is_file() {
+        return Err(AppError::new(
+            crate::error::ErrorCode::RecordNotFound,
+            "Submission document does not exist.",
+        )
+        .with_context("path", path.display().to_string()));
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(path.display().to_string(), None::<&str>)
+        .map_err(|e| AppError::internal(format!("opening submission document failed: {e}")))
 }

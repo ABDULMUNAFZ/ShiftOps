@@ -2,6 +2,25 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T00:59:50+05:30 — Repository management and Submission Readiness (Task 3, milestone 5)
+
+- Changed:
+  - Repository list now distinguishes metadata-only, external and ShiftOps-managed sources and shows GitHub identity, technology, runtime, package manager, branch/commit, working tree, trust, scan state and last scan time.
+  - Repository detail supports explicit trust changes and confirmed record-only removal. Both actions create audit events; removing a record never deletes checkout files.
+  - Devin remains detection-only and the Integrations page states `Full Devin workflow arrives in Task 4.`
+  - Added native Submission Readiness evidence: required documents, remote, HEAD and origin/main, dirty/push state, participant TODO count, last recorded validation, bounded tracked-file secret rules and an intentionally unset final SHA.
+  - Added a desktop Submission Readiness page with deterministic Not Ready / Needs Participant Input / Ready for Final Verification states, Copy Checklist, Open Files, Open GitHub and Refresh. `Submitted` is never inferred.
+  - Added `pnpm validate:record`, which runs the complete check before writing a gitignored, mode-0600 `.shiftops/validation.json` for the current commit.
+  - Fixed Windows CI's Unix-only test import from run `40125030556` by using `cfg(all(test, unix))`.
+- Why: Task 3 must finish as an auditable repository-management product, not a collection of scanners, and submission status must be derived from evidence rather than manually claimed.
+- Validation:
+  - `pnpm check`: 88 JavaScript tests (desktop 54, including trust/removal and Submission Readiness UI); 179 Rust tests passed, 2 ignored; Prettier, types, ESLint, rustfmt and Clippy `-D warnings` clean.
+  - Native tests cover deterministic status, redacted secret findings, real-checkout Git collection and record removal preserving files.
+  - Website and desktop production builds pass.
+- Limitations:
+  - Live GitHub OAuth remains unverified because no real client ID or PAT was supplied.
+  - `Submitted` and final SHA remain intentionally unavailable until the human submission flow in Task 6.
+
 ## 2026-10-25T00:49:13+05:30 — Managed clone and local linking (Task 3, milestone 4 completion)
 
 - Changed:

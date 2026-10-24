@@ -22,7 +22,7 @@ use crate::db::intelligence;
 use crate::db::repositories::{self, RepositoryScan};
 use crate::db::Database;
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::git::policy::{command_args, GIT_ENV, READONLY_COMMANDS};
+use crate::git::policy::{command_args, GIT_ENV, HEAD_COMMAND};
 use crate::process::{
     CommandCategory, CommandSpec, ExecutionPolicy, ProcessRunner, Program, RunStatus,
 };
@@ -162,7 +162,7 @@ async fn head_commit(root: &Path, search: &SearchPath) -> Option<String> {
         Program::Named("git".into()),
         &[],
     );
-    spec.args = command_args(READONLY_COMMANDS[1]);
+    spec.args = command_args(HEAD_COMMAND);
     spec.cwd = Some(root.to_path_buf());
     spec.env = GIT_ENV
         .iter()

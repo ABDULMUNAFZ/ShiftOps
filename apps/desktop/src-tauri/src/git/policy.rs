@@ -33,25 +33,44 @@ pub const BRANCH_FORMAT: &str =
     "--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)%00%(upstream:short)";
 
 /// Every permitted read-only command after the prefix, exactly.
+pub const CURRENT_BRANCH_COMMAND: &[&str] = &["rev-parse", "--abbrev-ref", "HEAD"];
+pub const HEAD_COMMAND: &[&str] = &["rev-parse", "--verify", "--quiet", "HEAD"];
+pub const ORIGIN_MAIN_COMMAND: &[&str] = &[
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    "refs/remotes/origin/main",
+];
+pub const AHEAD_COUNT_COMMAND: &[&str] = &["rev-list", "--count", "refs/remotes/origin/main..HEAD"];
+pub const TRACKED_FILES_COMMAND: &[&str] = &["ls-files", "-z"];
+pub const DEFAULT_BRANCH_COMMAND: &[&str] = &[
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "refs/remotes/origin/HEAD",
+];
+pub const ORIGIN_URL_COMMAND: &[&str] = &["remote", "get-url", "origin"];
+pub const STATUS_COMMAND: &[&str] = &["status", "--porcelain=v1", "-z", "--untracked-files=normal"];
+pub const LAST_COMMIT_COMMAND: &[&str] = &["log", "-1", "--format=%cI", "--no-show-signature"];
+pub const BRANCHES_COMMAND: &[&str] = &[
+    "for-each-ref",
+    BRANCH_FORMAT,
+    "--sort=-committerdate",
+    "--count=200",
+    "refs/heads",
+];
+
 pub const READONLY_COMMANDS: &[&[&str]] = &[
-    &["rev-parse", "--abbrev-ref", "HEAD"],
-    &["rev-parse", "--verify", "--quiet", "HEAD"],
-    &[
-        "symbolic-ref",
-        "--quiet",
-        "--short",
-        "refs/remotes/origin/HEAD",
-    ],
-    &["remote", "get-url", "origin"],
-    &["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
-    &["log", "-1", "--format=%cI", "--no-show-signature"],
-    &[
-        "for-each-ref",
-        BRANCH_FORMAT,
-        "--sort=-committerdate",
-        "--count=200",
-        "refs/heads",
-    ],
+    CURRENT_BRANCH_COMMAND,
+    HEAD_COMMAND,
+    ORIGIN_MAIN_COMMAND,
+    AHEAD_COUNT_COMMAND,
+    TRACKED_FILES_COMMAND,
+    DEFAULT_BRANCH_COMMAND,
+    ORIGIN_URL_COMMAND,
+    STATUS_COMMAND,
+    LAST_COMMIT_COMMAND,
+    BRANCHES_COMMAND,
 ];
 
 /// Environment for every Git call: no prompts, no pager, no optional locks,
