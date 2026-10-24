@@ -13,30 +13,31 @@
   --so-border: oklch(0.9 0.006 250);
   --so-fg: oklch(0.2 0.015 255);
   --so-muted: oklch(0.5 0.015 255);
-  --so-accent: oklch(0.56 0.13 178);
+  /* Brand: acid lime. On light surfaces a deep olive keeps text contrast. */
+  --so-accent: oklch(0.5 0.13 128);
   --so-accent-fg: oklch(0.99 0 0);
-  --so-accent-soft: oklch(0.94 0.04 178);
+  --so-accent-soft: oklch(0.95 0.06 125);
   --so-ok: oklch(0.55 0.14 150);
   --so-warn: oklch(0.64 0.15 70);
   --so-danger: oklch(0.56 0.2 27);
-  --so-ring: oklch(0.56 0.13 178 / 0.5);
+  --so-ring: oklch(0.5 0.13 128 / 0.5);
   color-scheme: light;
 }
 
 .dark {
-  --so-bg: oklch(0.16 0.01 255);
-  --so-surface: oklch(0.195 0.011 255);
-  --so-surface-2: oklch(0.235 0.012 255);
-  --so-border: oklch(0.3 0.012 255);
-  --so-fg: oklch(0.93 0.006 250);
-  --so-muted: oklch(0.68 0.012 255);
-  --so-accent: oklch(0.76 0.13 178);
-  --so-accent-fg: oklch(0.17 0.02 200);
-  --so-accent-soft: oklch(0.3 0.05 178);
+  --so-bg: oklch(0.145 0.004 130);
+  --so-surface: oklch(0.18 0.005 130);
+  --so-surface-2: oklch(0.225 0.006 130);
+  --so-border: oklch(0.29 0.008 130);
+  --so-fg: oklch(0.95 0.005 120);
+  --so-muted: oklch(0.69 0.01 125);
+  --so-accent: oklch(0.91 0.2 125);
+  --so-accent-fg: oklch(0.18 0.03 130);
+  --so-accent-soft: oklch(0.32 0.07 128);
   --so-ok: oklch(0.74 0.15 150);
   --so-warn: oklch(0.8 0.14 75);
   --so-danger: oklch(0.7 0.18 25);
-  --so-ring: oklch(0.76 0.13 178 / 0.5);
+  --so-ring: oklch(0.91 0.2 125 / 0.5);
   color-scheme: dark;
 }
 

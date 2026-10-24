@@ -13,4 +13,19 @@ describe("website routes", () => {
       expect(existsSync(join(appDir, String(href), "page.tsx")), href).toBe(true);
     }
   });
+
+  it("landing page links resolve to real routes and in-page sections", () => {
+    const landing = readFileSync(join(appDir, "page.tsx"), "utf8");
+    const routes = [...landing.matchAll(/href="\/([a-z-]+)\/"/g)].map((m) => m[1]);
+    expect(routes.length).toBeGreaterThan(0);
+    for (const route of routes) expect(existsSync(join(appDir, String(route), "page.tsx")), route).toBe(true);
+    for (const anchor of landing.matchAll(/href="#([a-z-]+)"/g)) {
+      expect(landing).toContain(`id="${anchor[1]}"`);
+    }
+  });
+
+  it("is honest that no signed installers are published", () => {
+    const download = readFileSync(join(appDir, "download", "page.tsx"), "utf8");
+    expect(download).toMatch(/No signed release builds have been published yet/);
+  });
 });

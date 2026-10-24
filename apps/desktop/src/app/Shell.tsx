@@ -52,18 +52,21 @@ export function Shell() {
       <aside
         className={cn(
           "flex shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-150",
-          collapsed ? "w-14" : "w-56",
+          collapsed ? "w-16" : "w-60",
         )}
         aria-label="Primary"
       >
-        <div
-          className={cn("flex h-12 items-center gap-2 border-b border-border", collapsed ? "justify-center" : "px-4")}
-        >
-          <Logo />
-          {collapsed ? null : <span className="text-sm font-semibold tracking-tight">{brand.name}</span>}
+        <div className={cn("flex h-14 items-center gap-2.5", collapsed ? "justify-center" : "px-4")}>
+          <Logo className="size-7" />
+          {collapsed ? null : (
+            <span className="flex flex-col leading-tight">
+              <span className="text-sm font-semibold tracking-tight">{brand.name}</span>
+              <span className="text-[10px] text-muted">Migration campaigns</span>
+            </span>
+          )}
         </div>
 
-        <nav className="flex-1 space-y-0.5 p-2">
+        <nav className="flex-1 space-y-1 px-3 py-2">
           {NAV_ITEMS.map(({ path, label, icon: Icon, shortcut }) => (
             <NavLink
               key={path}
@@ -73,9 +76,11 @@ export function Shell() {
               aria-label={collapsed ? label : undefined}
               className={({ isActive }) =>
                 cn(
-                  "group flex h-8 items-center gap-2.5 rounded-md text-sm transition-colors",
-                  collapsed ? "justify-center" : "px-2.5",
-                  isActive ? "bg-accent-soft font-medium text-fg" : "text-muted hover:bg-surface-2 hover:text-fg",
+                  "group flex h-9 items-center gap-2.5 rounded-xl text-sm transition-colors",
+                  collapsed ? "justify-center" : "px-3",
+                  isActive
+                    ? "bg-accent font-semibold text-accent-fg shadow-sm"
+                    : "text-muted hover:bg-surface-2 hover:text-fg",
                 )
               }
             >
@@ -83,7 +88,7 @@ export function Shell() {
               {collapsed ? null : (
                 <>
                   <span className="flex-1 truncate">{label}</span>
-                  <Kbd className="opacity-0 group-hover:opacity-100">
+                  <Kbd className="opacity-0 group-hover:opacity-100 group-aria-[current=page]:hidden">
                     {modKey}
                     {shortcut}
                   </Kbd>
@@ -93,15 +98,15 @@ export function Shell() {
           ))}
         </nav>
 
-        <div className="space-y-0.5 border-t border-border p-2">
+        <div className="space-y-1 border-t border-border px-3 py-2">
           <NavLink
             to="/about"
             title={collapsed ? "About" : undefined}
             aria-label={collapsed ? "About" : undefined}
             className={({ isActive }) =>
               cn(
-                "flex h-7 items-center gap-2.5 rounded-md text-xs transition-colors",
-                collapsed ? "justify-center" : "px-2.5",
+                "flex h-8 items-center gap-2.5 rounded-xl text-xs transition-colors",
+                collapsed ? "justify-center" : "px-3",
                 isActive ? "bg-accent-soft text-fg" : "text-muted hover:bg-surface-2 hover:text-fg",
               )
             }
@@ -124,7 +129,7 @@ export function Shell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-border px-4">
+        <header className="flex h-14 shrink-0 items-center justify-end gap-2 border-b border-border bg-bg/80 px-5 backdrop-blur">
           <Button
             variant="ghost"
             size="sm"

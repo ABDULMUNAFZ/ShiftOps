@@ -10,7 +10,7 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 | 2. Persistence, credentials, safe execution, activity                 | Complete                                                                                        | `4701627`, Windows CI fixes `5c6ea42`, `824691f`                            |
 | 3. Product profile, local repository intelligence, GitHub integration | **Complete**                                                                                    | `d388ff4`, `0e10fa1`, `43f264b`, `62a1b4b`, `9a9f265`, `e1cd62d`, `7666608` |
 | 4. Campaign planning, dependency intelligence, Devin integration      | **Complete** (local Devin CLI; live dispatch not exercised)                                     | Task 4 commits (see §9)                                                     |
-| 5. Migration execution, verification, Devin repair loop               | **Complete** (live Devin dispatch not exercised)                                                | branch `feat/verification-repair-loop`, not pushed (see §8d)                |
+| 5. Migration execution, verification, Devin repair loop               | **Complete** (live Devin dispatch not exercised)                                                | branch `feat/verification-repair-loop` (`9fd1b3d`, pushed; see §8d)         |
 | 6. End-to-end workflow, packaging, security audit, submission         | **In progress**: repository-management hardening done; packaging, audit, submission not started | same branch                                                                 |
 
 - **Repository:** `https://github.com/ABDULMUNAFZ/ShiftOps` (public). Branch `main` tracks `origin/main`.
@@ -22,7 +22,7 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 
 1. `cd ~/shiftops && git status && git log --oneline -10`, then confirm it matches §0.
 2. Read `AGENTS.md` (hard rules), this file, and the newest entries of `CHANGELOG.md`.
-3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 110 JS tests and 208 Rust tests passing, 3 ignored.
+3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 112 JS tests and 208 Rust tests passing, 3 ignored.
 4. Tasks 1–5 are complete; Task 6 is in progress (§8d). Do not start further Task 6 work without its specification.
 
 Environment on the development Mac:
@@ -180,7 +180,7 @@ Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shifto
 
 ## 7. Tests and verification (latest)
 
-- **JavaScript:** 110 tests — core 21, github 11, devin 2, verification 4, ui 3, website 1, desktop 68.
+- **JavaScript:** 112 tests — core 21, github 11, devin 2, verification 4, ui 3, website 3, desktop 68.
 - **Rust:** 208 passed, 3 ignored. The ignored ones are manual rehearsals:
   - `upgrade_rehearsal` with `SHIFTOPS_UPGRADE_DB`;
   - `scan_rehearsal` with `SHIFTOPS_SCAN_PATH`;
@@ -264,9 +264,17 @@ The working specification is the owner's "Complete Steps 5 and 6" prompt. Task 5
 - **Readiness:** now requires a passing validation recorded for the current HEAD (before this, it could report Ready with no validation). Non-blocking `warnings` are separated from blocking reasons, and the page refreshes on window focus.
 - **Contract fix:** `githubLinkMethod` now accepts `metadata_only` and `discovery`. Before this, any metadata-only or discovered GitHub record failed Zod validation and broke the repository list.
 
+## 8e. Website, desktop UI and branding (2026-10-25)
+
+- **Website:** the landing page (`apps/website/src/app/page.tsx`) is dark and full-bleed with acid-lime accents. Sections: hero, illustrative product mockup (labelled as such), problem/solution, a six-step workflow, use cases, verification, safeguards and a download CTA. The CTA says honestly that no signed installers exist yet. GSAP 3.15 ScrollTrigger drives the hero entrance, section reveals, the preview tilt and the workflow progress line; all are skipped under reduced motion. The hero glow follows the pointer for mouse users only. The site defaults to dark.
+- **Brand:** the shared accent is acid lime (dark `oklch(0.91 0.2 125)`, light deep olive for contrast). The icon (`src-tauri/icons/icon.svg`) is lime, and every PNG/ICNS/ICO was regenerated with `tauri icon`. Favicons: website `app/icon.svg`, desktop `public/favicon.svg`.
+- **Desktop UI:** rounded cards, pill buttons and badges in `@shiftops/ui`; a lime active navigation and larger brand block in the shell; larger page headers. Overview adds live counts and a "Get started" checklist driven by real data, and replaces a stale empty state. The Verification page shows status badges, profile, trigger and time.
+- **Docs:** README features, quick start, architecture and tests; `docs/USER_MANUAL.md`.
+- **Visual verification:** the website was rendered in headless Chrome at 1440 px and 500 px. The desktop UI was not rendered in Tauri: launching it would run the environment check that executes the `devin` binary (see the XProtect note) and would upgrade the real database. It is covered by component tests only.
+
 ## 9. Exact next step
 
-Task 5 and Task 6's repository hardening are implemented on the feature branch (§8d); see the newest `CHANGELOG.md` entry. Push, PR and merge need the owner's explicit authorisation. Next: the rest of Task 6 (end-to-end workflow, packaging, security audit, submission), when its specification arrives. A live Devin dispatch still needs the owner's explicit approval.
+Task 5 and Task 6's repository hardening are implemented on the feature branch (§8d); see the newest `CHANGELOG.md` entry. The branch is pushed to origin; a PR and merge need the owner's explicit authorisation. Next: the rest of Task 6 (end-to-end workflow, packaging, security audit, submission), when its specification arrives. A live Devin dispatch still needs the owner's explicit approval.
 
 Task 4 final state (kept for reference): commit SHAs and the CI run are recorded in the `CHANGELOG.md` Task 4 entry.
 

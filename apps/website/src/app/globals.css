@@ -41,3 +41,20 @@
 .prose-doc td {
   @apply border-b border-border px-2 py-2 text-left align-top;
 }
+
+/* Landing page: a soft brand glow behind the hero that follows a fine pointer. */
+.landing-hero {
+  --spot-x: 70%;
+  --spot-y: 10%;
+  background:
+    radial-gradient(600px circle at var(--spot-x) var(--spot-y), oklch(0.91 0.2 125 / 0.13), transparent 60%),
+    radial-gradient(900px circle at 10% -10%, oklch(0.91 0.2 125 / 0.06), transparent 55%);
+}
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

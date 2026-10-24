@@ -34,7 +34,7 @@ AI assistance is recorded in [AI_USAGE.md](AI_USAGE.md).
   3. Integrations → Credential security: store and delete a token in the OS keychain.
   4. Open the Activity Centre with ⌘J to see the persisted audit trail.
   5. Repositories → Open folder or Discover: add a local checkout, inspect its read-only Git state and run the intelligence scan.
-  6. Integrations → GitHub: connect with the device flow or a fine-grained PAT, then Repositories → Browse GitHub to import metadata-only, clone into an approved managed workspace, or link an existing checkout.
+  6. Integrations → GitHub: connect with the device flow or a fine-grained PAT, then on Repositories use GitHub Metadata Only, Clone into Managed Workspace or Link Existing Clone.
   7. Open a repository's detail page to review evidence, runtimes, dependencies, scripts, Docker, CI, Git, branches and pull requests; change its trust or forget only the record.
   8. Submission Readiness (⌘8): inspect the live evidence checklist, copy it, open the required documents, or open the GitHub repository.
   9. Campaigns → New campaign: pick scanned repositories, set "Upgrade Node.js 18 to Node.js 22" (node, 18 → 22), create.

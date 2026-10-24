@@ -1,5 +1,5 @@
 import type { Page as DataPage } from "@shiftops/core";
-import { Card, EmptyState, Spinner } from "@shiftops/ui";
+import { Badge, Card, EmptyState, Spinner, type BadgeTone } from "@shiftops/ui";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
@@ -8,10 +8,18 @@ import { useVerificationRuns } from "../lib/queries";
 import { Page } from "./Page";
 
 /*
- * These sections read their tables from the local database. Nothing in this
- * build creates their records, so they show truthful empty states; once later
- * steps write records they appear here without UI changes.
+ * These sections read their tables from the local database and show truthful
+ * empty states until real records exist.
  */
+
+const RUN_TONE: Record<string, BadgeTone> = {
+  queued: "neutral",
+  running: "accent",
+  passed: "ok",
+  failed: "danger",
+  error: "danger",
+  cancelled: "warn",
+};
 
 function Listing<T extends { id: string }>({
   query,
@@ -66,19 +74,31 @@ export function VerificationPage() {
   return (
     <Page
       title="Verification"
-      description="Independent re-runs of each repository's checks against the agent's branch."
+      description="Runs of each repository's own checks, executed by ShiftOps itself. Start one from a campaign member's Verify panel."
     >
       <Card>
         <Listing
           query={query}
           columns={[
-            { header: "Run", cell: (v) => v.id },
-            { header: "Status", cell: (v) => v.status },
-            { header: "Commit", cell: (v) => v.verifiedCommitSha },
+            {
+              header: "Status",
+              cell: (v) => <Badge tone={RUN_TONE[v.status] ?? "neutral"}>{v.status}</Badge>,
+            },
+            {
+              header: "Commit",
+              cell: (v) => <span className="font-mono text-xs">{v.verifiedCommitSha.slice(0, 10)}</span>,
+            },
+            { header: "Profile", cell: (v) => <span className="font-mono text-xs">{v.profile}</span> },
+            {
+              header: "Trigger",
+              cell: (v) => (v.trigger === "after_repair" ? <Badge tone="accent">after repair</Badge> : "manual"),
+            },
+            { header: "Started", cell: (v) => new Date(v.startedAt).toLocaleString() },
           ]}
           empty={
-            <EmptyState icon={<ShieldCheck />} title="No verification results">
-              Verification runs after an agent produces a branch. No branches have been produced yet.
+            <EmptyState icon={<ShieldCheck />} title="No verification runs yet">
+              Open a campaign, choose Verify on a trusted repository, review the exact commands and run them. Results
+              appear here with their real exit codes.
             </EmptyState>
           }
         />

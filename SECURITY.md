@@ -96,6 +96,8 @@ Callers can also register literal secrets, for example a token passed in a child
 - Dispatch claims the task atomically (`pending` to `queued`) before any process starts, and re-checks that the stored instructions still match the approved hash. A database index allows at most one live session per campaign member. Dispatch refuses a checkout with uncommitted changes, so Devin's work never mixes with the user's.
 - Sessions still live when ShiftOps stops are closed on the next launch as `failed`, never `succeeded`, and recorded.
 
+- **Open item:** during development, macOS XProtect reported "Malicious Script Blocked" while the Devin CLI was being troubleshot. The blocked item has not been identified. The installed `devin` binary passes `codesign --verify --strict` (Developer ID Application EXAFUNCTION, INC., 83Z2LHX6XW). That shows a valid signature, not that the binary is safe. The checksum has not yet been compared with a published release manifest. Never bypass Gatekeeper or XProtect to run it; live dispatch stays unverified until this is resolved.
+
 ### Verification
 
 - Verification executes the repository's own scripts, so it requires trust `trusted` (checked in Rust, not only in the UI), an explicit confirmation, and the plan hash the user reviewed.

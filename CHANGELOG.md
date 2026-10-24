@@ -2,6 +2,16 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T04:32:20+05:30 — Premium website, refreshed desktop UI, brand icons and user manual
+
+- Changed:
+  - Website landing page rebuilt: dark, full-bleed, acid-lime accents, rounded modular cards. Sections: hero, illustrative product mockup (labelled), problem/solution, six-step workflow, use cases, verification, safeguards, and an honest download CTA (no signed installers yet). GSAP 3.15 ScrollTrigger animates the hero entrance, reveals, the preview tilt and the workflow progress line; nothing animates under reduced motion. The pointer glow is for mouse users only. Header and footer restyled; the site defaults to dark.
+  - Brand accent moved to acid lime in the shared tokens; logo, `icon.svg` and all platform icons (PNG, ICNS, ICO) regenerated with `tauri icon`; favicons added for the website and the desktop web view.
+  - Desktop: rounded cards, pill buttons and badges; a lime active state in the sidebar; larger page headers; Overview live counts and a data-driven "Get started" checklist; Verification page badges, profile, trigger and time.
+  - README: features, quick start, architecture and tests. New `docs/USER_MANUAL.md`. SECURITY records the open XProtect item.
+- Why: a complete, honest product presentation and a consistent brand across the site and the app.
+- Validation: full `pnpm check`, website and desktop builds (results in the commit message). Website rendered in headless Chrome at desktop and narrow widths. The desktop UI was not launched in Tauri (see `PROJECT_STATE.md` §8e).
+
 ## 2026-10-25T04:12:18+05:30 — Independent verification, bounded Devin repair loop and repository hardening (Task 5, Task 6 part 1)
 
 - Changed:
