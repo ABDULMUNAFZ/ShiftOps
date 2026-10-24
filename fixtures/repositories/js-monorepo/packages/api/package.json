@@ -1,0 +1,5 @@
+{
+  "name": "@acme/api",
+  "dependencies": { "@nestjs/core": "10.4.6" },
+  "scripts": { "build": "nest build", "test": "jest" }
+}

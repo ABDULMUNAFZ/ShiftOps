@@ -53,6 +53,13 @@ Callers can also register literal secrets, for example a token passed in a child
 - Credentials in remote URLs (`https://token@host/...`) are stripped before the URL is stored or shown.
 - Symbolic links that leave the chosen folder are never followed.
 
+### Repository scanning
+
+- The scanner reads only allow-listed manifest and configuration files from the repository's own tree. It never follows symbolic links, never executes repository code and runs one read-only Git command (`rev-parse HEAD`).
+- Secret files (`.env*`, `.npmrc`, `.yarnrc*`, `.netrc`, `.pypirc`, `.git-credentials`, private keys and certificates, `credentials*`, `secrets*`, keystores) are never opened. A test plants a `.env` value and proves it never reaches stored facts.
+- Values that are stored (scripts, image names, versions) pass through redaction.
+- File size, depth, entry and file-count limits bound memory and time.
+
 ### Paths and URLs
 
 - Paths are canonicalised and checked against allowed roots. Symlinks that escape a root are refused unless explicitly approved. Null bytes, relative and malformed paths are rejected.

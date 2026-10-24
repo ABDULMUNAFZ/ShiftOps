@@ -557,3 +557,79 @@ pub async fn list_repository_branches(
             .with_details(e)
         })
 }
+
+// ---------------------------------------------------------------- repository intelligence
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedScan {
+    repository_id: String,
+}
+
+/// Start a read-only intelligence scan. `force` ignores the cache.
+#[tauri::command]
+pub async fn start_repository_scan<R: Runtime>(
+    repository_id: String,
+    force: bool,
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> AppResult<StartedScan> {
+    let search = shell_path::search_path().await;
+    state.scans.start(
+        &repository_id,
+        force,
+        state.db.clone(),
+        search,
+        Arc::new(crate::scanner::TauriScanSink(app)),
+    )?;
+    Ok(StartedScan { repository_id })
+}
+
+#[tauri::command]
+pub fn cancel_repository_scan(
+    repository_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CancelDiscoveryResponse> {
+    let outcome = if state.scans.cancel(&repository_id) {
+        CancelOutcome::Requested
+    } else {
+        CancelOutcome::NotRunning
+    };
+    Ok(CancelDiscoveryResponse {
+        discovery_id: repository_id,
+        outcome,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceResponse {
+    #[serde(flatten)]
+    intelligence: crate::db::intelligence::Intelligence,
+    scan_running: bool,
+}
+
+#[tauri::command]
+pub fn get_repository_intelligence(
+    repository_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<IntelligenceResponse> {
+    let intelligence = state
+        .db
+        .read(|c| crate::db::intelligence::latest(c, &repository_id))?;
+    Ok(IntelligenceResponse {
+        intelligence,
+        scan_running: state.scans.is_running(&repository_id),
+    })
+}
+
+#[tauri::command]
+pub fn list_repository_scans(
+    repository_id: String,
+    params: ListParams,
+    state: State<'_, AppState>,
+) -> AppResult<Page<repositories::RepositoryScan>> {
+    state
+        .db
+        .read(|c| repositories::list_scans(c, &repository_id, &params))
+}

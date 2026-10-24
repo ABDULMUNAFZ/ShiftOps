@@ -56,6 +56,11 @@ pub struct Repository {
     pub last_commit_at: Option<String>,
     pub git_collected_at: Option<String>,
     pub git_warnings: Value,
+    /// Status of the most recent scan attempt.
+    pub last_scan_status: Option<ScanStatus>,
+    pub last_scanned_at: Option<String>,
+    /// Headline facts from the latest completed scan (`scanner::summarize`).
+    pub scan_summary: Option<Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -89,7 +94,13 @@ pub struct GitState {
 const REPO_COLUMNS: &str = "SELECT id, source_type, name, local_path, remote_url, github_host, github_owner, github_repo, \
     default_branch, current_branch, current_commit, trust_status, created_at, updated_at, root_id, git_kind, \
     is_detached, is_dirty, staged_count, modified_count, untracked_count, last_commit_at, git_collected_at, \
-    git_warnings_json";
+    git_warnings_json, \
+    (SELECT s.status FROM repository_scans s WHERE s.repository_id = repositories.id \
+        ORDER BY s.started_at DESC, s.rowid DESC LIMIT 1) AS last_scan_status, \
+    (SELECT s.completed_at FROM repository_scans s WHERE s.repository_id = repositories.id AND s.status = 'completed' \
+        ORDER BY s.started_at DESC, s.rowid DESC LIMIT 1) AS last_scanned_at, \
+    (SELECT s.result_json FROM repository_scans s WHERE s.repository_id = repositories.id AND s.status = 'completed' \
+        ORDER BY s.started_at DESC, s.rowid DESC LIMIT 1) AS scan_summary_json";
 
 fn map_repo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Repository> {
     Ok(Repository {
@@ -117,6 +128,9 @@ fn map_repo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Repository> {
         last_commit_at: r.get("last_commit_at")?,
         git_collected_at: r.get("git_collected_at")?,
         git_warnings: json_col(r, "git_warnings_json")?,
+        last_scan_status: r.get("last_scan_status")?,
+        last_scanned_at: r.get("last_scanned_at")?,
+        scan_summary: json_col_opt(r, "scan_summary_json")?,
     })
 }
 

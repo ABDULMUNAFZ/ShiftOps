@@ -2,6 +2,35 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-24T23:35:48+05:30 — Repository intelligence scanner (Task 3, milestone 3)
+
+- Changed:
+  - Migration 6 `repository_intelligence`: `repository_facts` (value, evidence file, line, pointer, method, confidence) and `repository_conflicts`. `repository_scans` gains `scanner_version` and `cache_key`.
+  - Rust `scanner/`:
+    - Bounded traversal that never follows symlinks, never reads secret files (`.env*`, `.npmrc`, keys, credentials, …) and skips dependency, build, cache and fixture folders.
+    - Detectors for Node/TypeScript and Python, Java, .NET, Go and Rust metadata, plus Docker and CI.
+    - npm-style range checking, and scoped runtime and package-manager conflicts.
+    - Cache keyed by scanner version, HEAD commit and the content fingerprint of the relevant files.
+    - One scan per repository, with progress events, cancellation, a retention window of 3 scans, and activity events.
+  - Commands: `start_repository_scan`, `cancel_repository_scan`, `get_repository_intelligence`, `list_repository_scans`. Repository rows now carry the latest scan status and summary.
+  - UI: the repository list shows technology, runtime, package manager, scan state and conflicts. A new repository detail page has tabs Overview, Evidence, Runtimes, Dependencies, Scripts, Docker, CI, Git, Branches, Pull Requests (honest "not connected" state until milestone 4) and Activity.
+  - Eleven new deterministic fixtures in `fixtures/repositories`.
+- Why: Task 3 milestone 3 requires a read-only scanner whose every fact has evidence and whose conflicts are explicit.
+- Validation:
+  - `pnpm check` passed: JS 75 tests (desktop 41, including 5 new detail-page tests); Rust 134 passed, 2 ignored (manual rehearsals); Prettier, lint, rustfmt and clippy clean.
+  - Fixture scans assert real values with evidence: Express and Jest; Next.js 14.2.15 on pnpm 9.12.0; Node range `>=18 <19` at `package.json:6 /engines/node`; FastAPI with Python 3.12.7; Spring Boot 3.3.4 on Java 21; `net8.0` with SDK 8.0.403; Go 1.22 with Gin; Cargo workspace members and toolchain 1.82.0; Yarn monorepo with nested NestJS.
+  - The runtime-conflict fixture reports disagreeing versions, ranges that exclude declared versions, and npm plus yarn lockfiles.
+  - The malformed fixture completes with a warning. A worktree `.git` file is handled. A symlink to a file outside the repository is not read, and a planted `.env` value never appears in facts.
+  - Cache: an unchanged rescan reuses the stored scan; an uncommitted `package.json` edit invalidates it; an irrelevant file does not; Rescan forces a new scan.
+  - Rehearsal scan of this repository: TypeScript primary; Node `>=22.22.0`; Rust 1.85; pnpm and Cargo; Next.js, React, Vite, Vitest, Tauri, Tokio and Serde; 0 conflicts. The first rehearsal exposed two defects, both fixed in this entry: fixture folders were scanned as the project, and conflicts were compared across unrelated packages.
+  - `pnpm dev:desktop` upgraded the real database from 5 to 6 in place, with backup `shiftops-v5-20261024T180542Z.db`.
+  - Scanning was not clicked through in the UI by the agent; it is covered by component tests, IPC and fixture tests.
+- Limitations:
+  - Detection is declarative (manifests and config). It does not resolve dependency trees or lockfile contents.
+  - Python version conflicts compare only exact `major.minor` declarations, not ranges.
+  - YAML and XML are read line-based rather than with full parsers; unusual formatting can be missed.
+  - Scanner and walk tests are Unix-only.
+
 ## 2026-10-24T23:15:41+05:30 — Local repository discovery (Task 3, milestone 2)
 
 - Changed:

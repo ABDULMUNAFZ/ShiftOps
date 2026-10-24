@@ -11,7 +11,7 @@ A **campaign** is one codebase-wide change. It moves through these stages:
 5. **Verify**: ShiftOps re-runs the policy's commands against the agent's branch (`packages/verification`).
 6. **Track**: campaign state is persisted locally and shown per repository.
 
-The persistence for every stage exists (schema version 5). Discovery, planning, delegation and verification logic do not yet exist. See `PROJECT_STATE.md`.
+The persistence for every stage exists (schema version 6). Discovery, planning, delegation and verification logic do not yet exist. See `PROJECT_STATE.md`.
 
 ## Processes and boundaries
 
@@ -146,6 +146,30 @@ Events are emitted on `shiftops://process`. `lib/processStore.ts` keeps the last
 - **GitHub identity:** the identity (host, owner, repo) stays unique. A second checkout or worktree of the same GitHub repository keeps its remote URL, gets no GitHub link, and carries a warning naming the checkout that holds the link.
 - **Removing a root** (`remove_repository_root`, requires `confirm: true`) deletes only that record. Repositories keep their records with `root_id = NULL`. No file is deleted.
 - **Events and results:** events go to `shiftops://discovery`. Results are also retrievable with `get_discovery`, so a discovery that finishes before the UI subscribes is not lost.
+
+## Repository intelligence scanner
+
+`scanner/` produces evidence-backed facts for one registered repository.
+
+- **Traversal** (`files.rs`):
+  - Depth 8, 60,000 entries, 2,000 relevant files.
+  - Never follows symlinks. Never reads secret files (`.env*`, `.npmrc`, `.yarnrc*`, `.netrc`, keys, certificates, `credentials*`, `secrets*`).
+  - Skips dependency, build, cache and fixture folders, and nested repositories.
+  - Reads only allow-listed manifest and config names, each up to 512 KiB. Larger files are fingerprinted by size and modification time.
+  - Counts source files per language.
+- **Detection** (`detect.rs`): each fact carries its file, a 1-based line and/or a JSON pointer, the method and a confidence.
+  - Node/TypeScript: `package.json` (engines, `packageManager`, Volta, scripts, workspaces, dependencies and frameworks), `.nvmrc`, `.node-version`, `.tool-versions`, npm/pnpm/yarn/Bun lockfiles, `pnpm-workspace.yaml`, Turbo/Nx/Lerna, `tsconfig`.
+  - Python: `pyproject` (PEP 621 and Poetry), `requirements*.txt`, Pipfile, `.python-version`.
+  - Java: Maven and Gradle (Java version, Spring Boot).
+  - .NET: `*.csproj`, `global.json`.
+  - Go: `go.mod`, `go.work`.
+  - Rust: `Cargo.toml` (workspace, `rust-version`, dependencies), `rust-toolchain`.
+  - Docker: `FROM` and compose `image:` lines, with the implied runtime.
+  - CI: GitHub Actions `setup-*` steps (matrix values resolved), GitLab, CircleCI, Jenkins, Azure.
+- **Conflicts**: exact runtime declarations in the same directory must agree. A `package.json` engines range must admit every exact declaration from its own directory or an ancestor, with CI treated as repository-wide. Two JavaScript package managers in one directory is also a conflict. Duplicate conflicts are collapsed.
+- **Cache**: the key is sha256(scanner version, HEAD commit from read-only `git rev-parse`, sha256 of every relevant file's path and content). Uncommitted edits to relevant files change the key; other files do not. A cache hit returns the stored scan (`repository.scan_reused` activity). Rescan forces a new scan.
+- **Storage**: facts and conflicts reference their scan and cascade with it. The last 3 scans per repository are kept. The scan's `result_json` holds the headline summary shown in lists.
+- **Jobs**: one scan per repository at a time. Progress goes to `shiftops://scan`, cancellation is by repository id, and every outcome (completed, cached, cancelled, failed) is recorded as activity.
 
 ## Validation
 

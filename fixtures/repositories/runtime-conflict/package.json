@@ -1,0 +1,12 @@
+{
+  "name": "legacy-worker",
+  "engines": {
+    "node": ">=20"
+  },
+  "volta": {
+    "node": "16.20.2"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1"
+  }
+}

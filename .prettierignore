@@ -8,3 +8,4 @@ apps/desktop/src-tauri/gen
 apps/desktop/src-tauri/icons
 apps/website/next-env.d.ts
 apps/website/AGENTS.md
+fixtures/repositories

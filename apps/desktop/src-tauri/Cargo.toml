@@ -28,6 +28,8 @@ uuid = { version = "1.29", features = ["v4"] }
 regex = "1.13"
 url = "2.5"
 zeroize = "1"
+sha2 = "0.11"
+toml = "1.1"
 tauri-plugin-opener = "2.7.2"
 tauri-plugin-dialog = "2.8.3"
 

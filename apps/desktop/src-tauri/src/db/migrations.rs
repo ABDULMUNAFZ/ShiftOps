@@ -56,6 +56,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "repository_roots_and_git_state",
         sql: include_str!("sql/0005_repository_roots_and_git_state.sql"),
     },
+    Migration {
+        version: 6,
+        name: "repository_intelligence",
+        sql: include_str!("sql/0006_repository_intelligence.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {
@@ -267,7 +272,9 @@ mod tests {
                 "credential_metadata",
                 "migration_patterns",
                 "repositories",
+                "repository_conflicts",
                 "repository_dependencies",
+                "repository_facts",
                 "repository_roots",
                 "repository_scans",
                 "schema_migrations",

@@ -149,3 +149,14 @@ export function useRemoveRepositoryRoot() {
 export function useRepositoryBranches(id: string) {
   return useQuery({ queryKey: queryKeys.repositories.branches(id), queryFn: () => native.listRepositoryBranches(id) });
 }
+
+export function useRepository(id: string) {
+  return useQuery({ queryKey: queryKeys.repositories.detail(id), queryFn: () => native.getRepository(id) });
+}
+
+export function useRepositoryIntelligence(id: string) {
+  return useQuery({
+    queryKey: queryKeys.repositories.intelligence(id),
+    queryFn: () => native.getRepositoryIntelligence(id),
+  });
+}

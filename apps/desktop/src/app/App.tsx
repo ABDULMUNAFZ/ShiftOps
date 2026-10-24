@@ -13,6 +13,7 @@ import { useApplyTheme } from "../lib/theme";
 import { AboutPage } from "../pages/AboutPage";
 import { AgentRunsPage, CampaignsPage, VerificationPage } from "../pages/DataPages";
 import { RepositoriesPage } from "../pages/RepositoriesPage";
+import { RepositoryDetailPage } from "../pages/RepositoryDetailPage";
 import { IntegrationsPage } from "../pages/IntegrationsPage";
 import { OverviewPage } from "../pages/OverviewPage";
 import { SettingsPage } from "../pages/SettingsPage";
@@ -28,6 +29,7 @@ const router = createHashRouter([
     children: [
       { index: true, element: <OverviewPage /> },
       { path: "repositories", element: <RepositoriesPage /> },
+      { path: "repositories/:id", element: <RepositoryDetailPage /> },
       { path: "campaigns", element: <CampaignsPage /> },
       { path: "agent-runs", element: <AgentRunsPage /> },
       { path: "verification", element: <VerificationPage /> },

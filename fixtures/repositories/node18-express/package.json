@@ -1,0 +1,19 @@
+{
+  "name": "orders-api",
+  "version": "1.4.0",
+  "private": true,
+  "engines": {
+    "node": ">=18 <19"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "jest",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

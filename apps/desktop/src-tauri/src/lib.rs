@@ -9,6 +9,7 @@ mod logging;
 mod paths;
 mod process;
 mod redact;
+mod scanner;
 mod shell_path;
 mod time_util;
 mod urls;
@@ -35,6 +36,7 @@ pub struct AppState {
     /// Program and arguments for the bundled long-running diagnostic.
     pub diagnostic_program: (PathBuf, Vec<String>),
     pub discoveries: discovery::Discoveries,
+    pub scans: scanner::Scans,
 }
 
 impl AppState {
@@ -110,6 +112,7 @@ impl AppState {
             runner,
             diagnostic_program,
             discoveries: discovery::Discoveries::default(),
+            scans: scanner::Scans::default(),
         })
     }
 }
@@ -148,6 +151,10 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::list_repository_roots,
         commands::remove_repository_root,
         commands::list_repository_branches,
+        commands::start_repository_scan,
+        commands::cancel_repository_scan,
+        commands::get_repository_intelligence,
+        commands::list_repository_scans,
     ])
 }
 
@@ -600,5 +607,96 @@ mod ipc_tests {
         )
         .unwrap_err();
         assert_eq!(bad["code"], "VALIDATION_FAILED");
+    }
+
+    #[test]
+    fn repository_scan_commands_over_ipc() {
+        let h = harness();
+        let work = tempfile::tempdir().unwrap();
+        let path = std::fs::canonicalize(work.path()).unwrap();
+        std::fs::write(
+            path.join("package.json"),
+            r#"{"engines":{"node":">=20"},"dependencies":{"express":"^4"}}"#,
+        )
+        .unwrap();
+        std::fs::write(path.join(".nvmrc"), "18\n").unwrap();
+        let state = h._app.state::<AppState>();
+        let repo = state
+            .db
+            .write(|c| {
+                db::repositories::create(
+                    c,
+                    &db::repositories::NewRepository {
+                        source_type: db::repositories::SourceType::Local,
+                        name: "svc".into(),
+                        local_path: Some(path.display().to_string()),
+                        remote_url: None,
+                        github: None,
+                        default_branch: None,
+                    },
+                )
+            })
+            .unwrap();
+
+        let empty = invoke(
+            &h,
+            "get_repository_intelligence",
+            json!({ "repositoryId": repo.id }),
+        )
+        .unwrap();
+        assert!(empty["scan"].is_null());
+        invoke(
+            &h,
+            "start_repository_scan",
+            json!({ "repositoryId": repo.id, "force": false }),
+        )
+        .unwrap();
+        let mut intel = Value::Null;
+        for _ in 0..200 {
+            intel = invoke(
+                &h,
+                "get_repository_intelligence",
+                json!({ "repositoryId": repo.id }),
+            )
+            .unwrap();
+            if !intel["scan"].is_null() && intel["scanRunning"] == false {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert_eq!(intel["scan"]["status"], "completed", "{intel}");
+        let express = intel["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["key"] == "Express")
+            .unwrap();
+        assert_eq!(express["file"], "package.json");
+        assert_eq!(express["category"], "framework");
+        assert!(intel["conflicts"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("excludes Node 18"));
+
+        let listed = invoke(&h, "list_repositories", json!({ "params": {} })).unwrap();
+        assert_eq!(listed["items"][0]["lastScanStatus"], "completed");
+        assert_eq!(
+            listed["items"][0]["scanSummary"]["frameworks"],
+            json!(["Express"])
+        );
+        let scans = invoke(
+            &h,
+            "list_repository_scans",
+            json!({ "repositoryId": repo.id, "params": {} }),
+        )
+        .unwrap();
+        assert_eq!(scans["total"], 1);
+        let cancel = invoke(
+            &h,
+            "cancel_repository_scan",
+            json!({ "repositoryId": repo.id }),
+        )
+        .unwrap();
+        assert_eq!(cancel["outcome"], "not_running");
     }
 }

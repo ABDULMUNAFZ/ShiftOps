@@ -25,6 +25,8 @@ export const queryKeys = {
     all: ["repositories"] as const,
     list: (params: ListParams) => ["repositories", "list", params] as const,
     branches: (id: string) => ["repositories", "branches", id] as const,
+    detail: (id: string) => ["repositories", "detail", id] as const,
+    intelligence: (id: string) => ["repositories", "intelligence", id] as const,
   },
   roots: ["repository-roots"] as const,
   campaigns: { list: (params: ListParams) => ["campaigns", "list", params] as const },

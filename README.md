@@ -44,7 +44,7 @@ ShiftOps is built in six tasks. This table records what exists today.
 | ------------------------------------------------------------------- | ------------------------------------------------------ |
 | 1. Desktop foundation, environment checks, website                  | Complete                                               |
 | 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                                               |
-| 3. Product profile, local repository intelligence, GitHub           | In progress: profile and local discovery done          |
+| 3. Product profile, local repository intelligence, GitHub           | In progress: profile, discovery and scanner done       |
 | 4. Campaign planning, dependency intelligence, Devin integration    | Not started. **Devin integration does not exist yet.** |
 | 5. Migration execution, independent verification, Devin repair loop | Not started                                            |
 | 6. End-to-end workflow, packaging, security audit, submission       | Not started                                            |
@@ -85,6 +85,24 @@ docs/             Design notes
 4. Review the results (branch, commit, origin, working-tree counts, warnings), select repositories and click **Import**.
 
 Discovery reads the filesystem and runs only a fixed list of read-only Git commands. It never runs repository code, installs dependencies or changes files. Imported repositories start as **untrusted**.
+
+## Repository intelligence
+
+Open a repository and click **Run first scan** (or **Scan** / **Rescan**). The scanner reads manifests and configuration and records each fact with its file, line or JSON pointer, detection method and confidence:
+
+- languages, runtimes, package managers, workspaces, lockfiles;
+- frameworks, dependencies and declared scripts;
+- Docker and CI configuration.
+
+Conflicting runtime or package-manager declarations are listed explicitly.
+
+The scanner never runs repository code and never reads secret files such as `.env` or `.npmrc`. Results are cached by commit and relevant-file content, so an unchanged repository is not rescanned.
+
+To check what the scanner would report for any checkout, without the UI or the database:
+
+```sh
+SHIFTOPS_SCAN_PATH=/path/to/repo cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml scan_rehearsal -- --ignored --nocapture
+```
 
 ## Commands
 

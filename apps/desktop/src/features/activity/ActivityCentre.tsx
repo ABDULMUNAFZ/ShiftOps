@@ -55,7 +55,7 @@ function EventRow({ event }: { event: ActivityEvent }) {
 }
 
 /** Persisted activity: filters, pagination, refresh and copyable details. */
-export function ActivityList({ pageSize = ACTIVITY_PAGE_SIZE }: { pageSize?: number }) {
+export function ActivityList({ pageSize = ACTIVITY_PAGE_SIZE, entityId }: { pageSize?: number; entityId?: string }) {
   const [severity, setSeverity] = useState<Severity | "">("");
   const [entityType, setEntityType] = useState("");
   const [search, setSearch] = useState("");
@@ -66,6 +66,7 @@ export function ActivityList({ pageSize = ACTIVITY_PAGE_SIZE }: { pageSize?: num
     offset: page * pageSize,
     ...(severity ? { statuses: [severity] } : {}),
     ...(entityType ? { entityType } : {}),
+    ...(entityId ? { entityId } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
   };
   const activity = useActivity(query);
@@ -173,6 +174,15 @@ export function ActivityList({ pageSize = ACTIVITY_PAGE_SIZE }: { pageSize?: num
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Activity recorded for one entity, e.g. a repository's scans and imports. */
+export function ActivityListForEntity({ entityId }: { entityId: string }) {
+  return (
+    <div className="flex max-h-[32rem] flex-col">
+      <ActivityList entityId={entityId} />
     </div>
   );
 }

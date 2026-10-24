@@ -7,7 +7,8 @@ Last updated: 2026-10-24 (IST). ShiftOps is built in six tasks.
 - **Task 3** (product profile, local repository intelligence, GitHub integration) is **in progress**.
   - Done: milestone 1, product profile and documentation (`d388ff4`).
   - Done: milestone 2, local repository discovery (schema 5). See `CHANGELOG.md`.
-  - Next: milestone 3, repository intelligence scanner. Then milestone 4, GitHub integration; its import-mode spec and the specs for milestones 5–6 were cut off and have not been received.
+  - Done: milestone 3, repository intelligence scanner (schema 6).
+  - Next: milestone 4, GitHub integration. Its import-mode spec and the specs for milestones 5–6 were cut off and have not been received.
 - **Tasks 4–6** are not started. Devin integration does not exist.
 
 Remote: `https://github.com/ABDULMUNAFZ/ShiftOps.git`. `main` tracks `origin/main`. CI runs on GitHub Actions (Linux, macOS, Windows). Sections below were written at the end of Task 2; the Task 3 additions are in `CHANGELOG.md`.

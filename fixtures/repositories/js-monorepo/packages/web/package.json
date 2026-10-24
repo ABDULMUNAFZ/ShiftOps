@@ -1,0 +1,5 @@
+{
+  "name": "@acme/web",
+  "dependencies": { "react": "18.3.1", "vite": "5.4.10" },
+  "scripts": { "build": "vite build" }
+}

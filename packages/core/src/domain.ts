@@ -59,8 +59,121 @@ export const repositorySchema = z.object({
   lastCommitAt: z.string().nullable(),
   gitCollectedAt: timestamp.nullable(),
   gitWarnings: z.array(z.string()),
+  lastScanStatus: z.enum(["queued", "running", "completed", "failed", "cancelled"]).nullable(),
+  lastScannedAt: timestamp.nullable(),
+  scanSummary: z.lazy(() => scanSummarySchema).nullable(),
 });
 export type Repository = z.infer<typeof repositorySchema>;
+
+// ---------------------------------------------------------------- repository intelligence
+
+export const scanWarningSchema = z.object({ path: z.string(), message: z.string() });
+
+export const scanSummarySchema = z.object({
+  scannerVersion: z.string(),
+  cacheKey: z.string(),
+  primaryLanguage: z.string().nullable(),
+  languages: z.array(z.object({ name: z.string(), files: z.number().int().nonnegative() })),
+  runtimes: z.record(z.string(), z.array(z.string())),
+  packageManagers: z.array(z.string()),
+  frameworks: z.array(z.string()),
+  hasDocker: z.boolean(),
+  ci: z.array(z.string()),
+  facts: z.number().int().nonnegative(),
+  conflicts: z.number().int().nonnegative(),
+  relevantFiles: z.number().int().nonnegative(),
+  entriesSeen: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  warnings: z.array(scanWarningSchema),
+  durationMs: z.number().int().nonnegative().optional(),
+});
+export type ScanSummary = z.infer<typeof scanSummarySchema>;
+
+export const factCategorySchema = z.enum([
+  "language",
+  "framework",
+  "runtime",
+  "package_manager",
+  "workspace",
+  "manifest",
+  "lockfile",
+  "docker",
+  "ci",
+  "script",
+  "dependency",
+  "metadata",
+]);
+export type FactCategory = z.infer<typeof factCategorySchema>;
+
+export const repositoryFactSchema = z.object({
+  id: z.string(),
+  category: factCategorySchema,
+  key: z.string(),
+  value: z.string(),
+  file: z.string().nullable(),
+  line: z.number().int().positive().nullable(),
+  pointer: z.string().nullable(),
+  method: z.string(),
+  confidence: z.number().min(0).max(1),
+});
+export type RepositoryFact = z.infer<typeof repositoryFactSchema>;
+
+export const repositoryConflictSchema = z.object({
+  id: z.string(),
+  subject: z.string(),
+  message: z.string(),
+  values: z.array(
+    z.object({
+      value: z.string(),
+      file: z.string().nullable(),
+      line: z.number().int().positive().nullable(),
+      method: z.string(),
+    }),
+  ),
+});
+export type RepositoryConflict = z.infer<typeof repositoryConflictSchema>;
+
+export const repositoryScanSchema = z.object({
+  id: z.string(),
+  repositoryId: z.string(),
+  scannedCommit: z.string().nullable(),
+  relevantFilesHash: z.string().nullable(),
+  status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
+  result: scanSummarySchema.nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  startedAt: timestamp,
+  completedAt: timestamp.nullable(),
+});
+export type RepositoryScan = z.infer<typeof repositoryScanSchema>;
+
+export const repositoryIntelligenceSchema = z.object({
+  scan: repositoryScanSchema.nullable(),
+  latestAttempt: repositoryScanSchema.nullable(),
+  facts: z.array(repositoryFactSchema),
+  conflicts: z.array(repositoryConflictSchema),
+  scanRunning: z.boolean(),
+});
+export type RepositoryIntelligence = z.infer<typeof repositoryIntelligenceSchema>;
+
+export const scanEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("progress"),
+    repositoryId: z.string(),
+    entriesSeen: z.number().int().nonnegative(),
+    currentPath: z.string(),
+  }),
+  z.object({
+    type: z.literal("completed"),
+    outcome: z.object({
+      repositoryId: z.string(),
+      status: z.enum(["completed", "cached", "failed", "cancelled"]),
+      scan: repositoryScanSchema.nullable(),
+      error: appErrorSchema.nullable(),
+    }),
+  }),
+]);
+export type ScanEvent = z.infer<typeof scanEventSchema>;
 
 // ---------------------------------------------------------------- local discovery
 

@@ -3,6 +3,7 @@ import { Badge, Button, Card, CardHeader, EmptyState, Spinner } from "@shiftops/
 import { useMutation } from "@tanstack/react-query";
 import { FolderGit2, FolderOpen, FolderSearch } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { DiscoveryPanel } from "../features/repositories/DiscoveryPanel";
 import { useDiscovery } from "../features/repositories/useDiscovery";
@@ -200,29 +201,71 @@ function RepositoryTable() {
               <tr className="border-b border-border text-left text-xs text-muted">
                 <th className="px-4 py-2 font-medium">Repository</th>
                 <th className="px-2 py-2 font-medium">GitHub</th>
-                <th className="px-2 py-2 font-medium">Branch</th>
-                <th className="px-2 py-2 font-medium">Commit</th>
+                <th className="px-2 py-2 font-medium">Technology</th>
+                <th className="px-2 py-2 font-medium">Runtime</th>
+                <th className="px-2 py-2 font-medium">Packages</th>
+                <th className="px-2 py-2 font-medium">Branch · commit</th>
                 <th className="px-2 py-2 font-medium">Working tree</th>
                 <th className="px-2 py-2 font-medium">Trust</th>
+                <th className="px-2 py-2 font-medium">Scan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {repos.data.items.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} className="hover:bg-surface-2">
                   <td className="px-4 py-2">
-                    <p className="font-medium">{r.name}</p>
+                    <Link to={`/repositories/${r.id}`} className="font-medium hover:underline">
+                      {r.name}
+                    </Link>
                     <p className="selectable font-mono text-[11px] text-muted">{r.localPath ?? r.remoteUrl}</p>
                   </td>
                   <td className="px-2 py-2 font-mono text-xs">
                     {r.githubOwner ? `${r.githubOwner}/${r.githubRepo}` : <span className="text-muted">—</span>}
                   </td>
-                  <td className="px-2 py-2 font-mono text-xs">
-                    {r.isDetached ? <Badge tone="warn">detached</Badge> : (r.currentBranch ?? "—")}
+                  <td className="px-2 py-2 text-xs">
+                    {r.scanSummary
+                      ? [r.scanSummary.primaryLanguage, ...r.scanSummary.frameworks.slice(0, 2)]
+                          .filter(Boolean)
+                          .join(" · ")
+                      : "—"}
                   </td>
-                  <td className="px-2 py-2 font-mono text-xs">{r.currentCommit?.slice(0, 10) ?? "—"}</td>
+                  <td className="px-2 py-2 font-mono text-xs">
+                    {r.scanSummary
+                      ? Object.entries(r.scanSummary.runtimes)
+                          .map(([k, v]) => `${k} ${v[0] ?? ""}`)
+                          .join(", ") || "—"
+                      : "—"}
+                  </td>
+                  <td className="px-2 py-2 text-xs">{r.scanSummary?.packageManagers.join(", ") || "—"}</td>
+                  <td className="px-2 py-2 font-mono text-xs">
+                    {r.isDetached ? <Badge tone="warn">detached</Badge> : (r.currentBranch ?? "—")}{" "}
+                    <span className="text-muted">{r.currentCommit?.slice(0, 7) ?? ""}</span>
+                  </td>
                   <td className="px-2 py-2">{workingTree(r)}</td>
                   <td className="px-2 py-2">
                     <Badge tone={TRUST_TONE[r.trustStatus]}>{r.trustStatus}</Badge>
+                  </td>
+                  <td className="px-2 py-2 text-xs">
+                    {r.lastScanStatus === null ? (
+                      <span className="text-muted">not scanned</span>
+                    ) : (
+                      <span title={r.lastScannedAt ?? undefined}>
+                        <Badge
+                          tone={
+                            r.lastScanStatus === "completed"
+                              ? "ok"
+                              : r.lastScanStatus === "failed"
+                                ? "danger"
+                                : "neutral"
+                          }
+                        >
+                          {r.lastScanStatus}
+                        </Badge>{" "}
+                        {r.scanSummary && r.scanSummary.conflicts > 0 ? (
+                          <Badge tone="danger">{r.scanSummary.conflicts} conflicts</Badge>
+                        ) : null}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

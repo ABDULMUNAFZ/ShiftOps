@@ -7,7 +7,7 @@ import { queryKeys } from "./queryKeys";
  * so a new side effect (for example a new activity event) is wired in one place.
  */
 export type ChangeKind =
-  "settings" | "onboarding" | "credentials" | "environment" | "process" | "discovery" | "repositories";
+  "settings" | "onboarding" | "credentials" | "environment" | "process" | "discovery" | "repositories" | "scan";
 
 const affected: Record<ChangeKind, readonly QueryKey[]> = {
   settings: [queryKeys.settings],
@@ -22,6 +22,8 @@ const affected: Record<ChangeKind, readonly QueryKey[]> = {
   discovery: [queryKeys.activity.all, queryKeys.health.database],
   // Import and root removal change repositories, roots and activity.
   repositories: [queryKeys.repositories.all, queryKeys.roots, queryKeys.activity.all, queryKeys.health.database],
+  // A finished scan writes facts, the scan row and an activity event.
+  scan: [queryKeys.repositories.all, queryKeys.activity.all, queryKeys.health.database],
 };
 
 export function invalidationTargets(kind: ChangeKind): readonly QueryKey[] {

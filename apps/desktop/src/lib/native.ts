@@ -17,7 +17,10 @@ import {
   migrationPatternSchema,
   pageSchema,
   processEventSchema,
+  repositoryIntelligenceSchema,
   repositoryRootSchema,
+  repositoryScanSchema,
+  scanEventSchema,
   repositorySchema,
   ShiftOpsError,
   verificationRunSchema,
@@ -29,6 +32,7 @@ import {
   type DiscoveryMode,
   type ListParams,
   type ProcessEvent,
+  type ScanEvent,
 } from "@shiftops/core";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -143,7 +147,34 @@ export const native = {
   listRepositoryRoots: () => call("list_repository_roots", z.array(repositoryRootSchema)),
   removeRepositoryRoot: (id: string) => call("remove_repository_root", repositoryRootSchema, { id, confirm: true }),
   listRepositoryBranches: (id: string) => call("list_repository_branches", z.array(branchInfoSchema), { id }),
+  getRepository: (id: string) => call("get_repository", repositorySchema, { id }),
+  startRepositoryScan: (repositoryId: string, force: boolean) =>
+    call("start_repository_scan", z.object({ repositoryId: z.string() }), { repositoryId, force }),
+  cancelRepositoryScan: (repositoryId: string) =>
+    call(
+      "cancel_repository_scan",
+      z.object({ discoveryId: z.string(), outcome: z.enum(["requested", "not_running"]) }),
+      {
+        repositoryId,
+      },
+    ),
+  getRepositoryIntelligence: (repositoryId: string) =>
+    call("get_repository_intelligence", repositoryIntelligenceSchema, { repositoryId }),
+  listRepositoryScans: (repositoryId: string, params: ListParams) =>
+    call("list_repository_scans", pageSchema(repositoryScanSchema), { repositoryId, params }),
 };
+
+export const SCAN_EVENT = "shiftops://scan";
+
+/** Subscribe to validated repository scan events. Returns an unsubscribe function. */
+export async function onScanEvent(handler: (event: ScanEvent) => void): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  return listen<unknown>(SCAN_EVENT, ({ payload }) => {
+    const parsed = scanEventSchema.safeParse(payload);
+    if (parsed.success) handler(parsed.data);
+    else console.error("Dropped malformed scan event", z.prettifyError(parsed.error));
+  });
+}
 
 export const DISCOVERY_EVENT = "shiftops://discovery";
 
