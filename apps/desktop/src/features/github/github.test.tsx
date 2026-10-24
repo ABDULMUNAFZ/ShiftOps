@@ -1,4 +1,4 @@
-import type { DeviceFlowEvent, GithubAccount, GithubStatus } from "@shiftops/core";
+import type { CloneEvent, DeviceFlowEvent, GithubAccount, GithubStatus } from "@shiftops/core";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithClient } from "../../test/render";
@@ -16,12 +16,27 @@ const native = vi.hoisted(() => ({
   githubCancelRequest: vi.fn(),
   githubListPullRequests: vi.fn(),
   openExternalUrl: vi.fn(),
+  getManagedWorkspace: vi.fn(),
+  listRepositoryClones: vi.fn(),
+  previewManagedClone: vi.fn(),
+  approveManagedWorkspace: vi.fn(),
+  startManagedClone: vi.fn(),
+  cancelManagedClone: vi.fn(),
+  cleanupManagedClone: vi.fn(),
+  inspectExistingClone: vi.fn(),
+  linkExistingClone: vi.fn(),
+  pickDirectory: vi.fn(),
 }));
 const events = vi.hoisted(() => ({ handler: null as null | ((e: DeviceFlowEvent) => void) }));
+const cloneEvents = vi.hoisted(() => ({ handler: null as null | ((e: CloneEvent) => void) }));
 vi.mock("../../lib/native", () => ({
   native,
   onGithubAuthEvent: async (h: (e: DeviceFlowEvent) => void) => {
     events.handler = h;
+    return () => undefined;
+  },
+  onCloneEvent: async (h: (e: CloneEvent) => void) => {
+    cloneEvents.handler = h;
     return () => undefined;
   },
 }));
@@ -66,6 +81,8 @@ beforeEach(() => {
   native.githubListOrganizations.mockResolvedValue([
     { id: "o1", githubId: 7, login: "acme", description: null, syncedAt: "t" },
   ]);
+  native.getManagedWorkspace.mockResolvedValue(null);
+  native.listRepositoryClones.mockResolvedValue([]);
 });
 
 describe("GithubConnection", () => {
@@ -209,7 +226,8 @@ describe("GithubBrowser", () => {
     renderWithClient(<GithubBrowser onClose={() => undefined} />);
     const table = await screen.findByRole("table", { name: "GitHub repositories" });
     expect(within(table).getByText("In ShiftOps")).toBeTruthy();
-    fireEvent.click(within(table).getByRole("button", { name: "Import acme/api" }));
+    fireEvent.click(within(table).getByRole("button", { name: "Add acme/api" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Metadata only" }));
     await waitFor(() => expect(native.githubImportRepository).toHaveBeenCalledWith("g1"));
 
     fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "acme" } });
@@ -223,6 +241,74 @@ describe("GithubBrowser", () => {
     await waitFor(() =>
       expect(native.githubBrowse).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }), expect.any(String)),
     );
+  });
+
+  it("previews a managed destination and requires explicit approval before cloning", async () => {
+    native.githubStatus.mockResolvedValue(status({ account }));
+    native.githubBrowse.mockResolvedValue({
+      items: [repo("g1", "api", null)],
+      page: 1,
+      perPage: 25,
+      hasNextPage: false,
+      totalCount: 1,
+    });
+    native.getManagedWorkspace.mockResolvedValue({
+      id: "w1",
+      canonicalPath: "/safe/ws",
+      approvedAt: "t",
+      createdAt: "t",
+    });
+    native.previewManagedClone.mockResolvedValue({
+      githubRepositoryId: "g1",
+      fullName: "acme/api",
+      private: false,
+      workspace: { id: "w1", canonicalPath: "/safe/ws", approvedAt: "t", createdAt: "t" },
+      cloneUrl: "https://github.com/acme/api.git",
+      destination: "/safe/ws/acme/api",
+      repositoryId: null,
+      problems: [],
+      ready: true,
+    });
+    native.startManagedClone.mockResolvedValue({ clone: { id: "c1" } });
+    renderWithClient(<GithubBrowser onClose={() => undefined} />);
+    const table = await screen.findByRole("table", { name: "GitHub repositories" });
+    fireEvent.click(within(table).getByRole("button", { name: "Add acme/api" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clone into managed workspace" }));
+    expect(await screen.findByText("/safe/ws/acme/api")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start managed clone" }));
+    await waitFor(() => expect(native.startManagedClone).toHaveBeenCalledWith("g1", "/safe/ws/acme/api"));
+  });
+
+  it("shows both identities before a remote mismatch override", async () => {
+    native.githubStatus.mockResolvedValue(status({ account }));
+    native.githubBrowse.mockResolvedValue({
+      items: [repo("g1", "api", null)],
+      page: 1,
+      perPage: 25,
+      hasNextPage: false,
+      totalCount: 1,
+    });
+    native.pickDirectory.mockResolvedValue("/work/fork");
+    native.inspectExistingClone.mockResolvedValue({
+      githubRepositoryId: "g1",
+      path: "/work/fork",
+      gitKind: "standard",
+      remoteUrl: "https://github.com/me/api.git",
+      expected: { host: "github.com", owner: "acme", repo: "api" },
+      actual: { host: "github.com", owner: "me", repo: "api" },
+      actualDisplay: "github.com/me/api",
+      matches: false,
+      warnings: [],
+    });
+    native.linkExistingClone.mockResolvedValue({ repository: {}, inspection: {}, scanStarted: true });
+    renderWithClient(<GithubBrowser onClose={() => undefined} />);
+    const table = await screen.findByRole("table", { name: "GitHub repositories" });
+    fireEvent.click(within(table).getByRole("button", { name: "Add acme/api" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Link existing clone" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose existing clone" }));
+    expect(await screen.findByText(/Expected: github.com\/acme\/api/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Override mismatch and link github.com\/me\/api/ }));
+    await waitFor(() => expect(native.linkExistingClone).toHaveBeenCalledWith("g1", "/work/fork", "github.com/me/api"));
   });
 
   it("shows a structured rate-limit error with retry", async () => {

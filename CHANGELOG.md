@@ -2,6 +2,24 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T00:49:13+05:30 — Managed clone and local linking (Task 3, milestone 4 completion)
+
+- Changed:
+  - Migration 8 adds explicitly approved managed workspaces, durable clone attempts, repository ownership and GitHub link method. Upgrades from every earlier schema are tested and preserve existing records.
+  - Added the sole mutating Git operation permitted in Task 3: a policy-built initial HTTPS clone into `<approved workspace>/<owner>/<repository>`. It uses an argument vector, disables hooks, templates, submodules, interactive credentials and LFS smudging, and rejects credentials or non-HTTPS transports.
+  - Clone jobs stream redacted progress, support cancellation, persist their outcome and start the read-only scanner after a verified success. Failed, cancelled and interrupted clones retain their folder for review.
+  - Cleanup requires the exact recorded path and removes only a failed/cancelled clone directory after canonical-path, workspace, repository, root, symlink and home-directory checks.
+  - Existing clones are inspected with the read-only Git policy. Matching remotes link as external; mismatches show both identities and require confirmation of the exact actual identity. External checkouts are never modified or deleted.
+  - GitHub Browse now offers Metadata only, Clone into managed workspace and Link existing clone, with workspace approval, destination preview, progress/cancel, actionable errors and guarded cleanup.
+- Why: GitHub metadata is useful for inventory, but deep analysis needs a checkout. These modes complete that workflow without broadening ShiftOps into a generic Git or filesystem client.
+- Validation:
+  - Unit coverage includes policy tampering, path traversal and collisions, retained failures, cancellation, cleanup boundaries, redaction, metadata-to-local transitions, real local HTTP clone, scan-after-clone and remote mismatch override.
+  - Native IPC covers workspace approval, state, clone listing/cancellation and missing-record errors. Desktop component tests cover metadata import, reviewed clone destination and mismatch confirmation.
+  - `pnpm check` passed: Prettier, typecheck and ESLint clean; 85 JavaScript tests passed (desktop 51); rustfmt and Clippy clean; 175 Rust tests passed, 2 manual rehearsals ignored.
+- Limitations:
+  - Private HTTPS clones rely on the user's existing Git credential helper or GitHub CLI setup; credentials are never injected into clone arguments.
+  - ShiftOps never automatically deletes an incomplete clone.
+
 ## 2026-10-24T23:57:06+05:30 — Real GitHub integration (Task 3, milestone 4)
 
 - Changed:

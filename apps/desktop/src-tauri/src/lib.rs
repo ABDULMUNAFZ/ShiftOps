@@ -14,6 +14,7 @@ mod scanner;
 mod shell_path;
 mod time_util;
 mod urls;
+mod workspace;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,6 +39,7 @@ pub struct AppState {
     pub diagnostic_program: (PathBuf, Vec<String>),
     pub discoveries: discovery::Discoveries,
     pub scans: scanner::Scans,
+    pub clones: workspace::clone::Clones,
     /// GitHub endpoints, or the configuration error to report.
     pub github_config: Result<github::client::GithubConfig, error::AppError>,
     pub github_flows: github::DeviceFlows,
@@ -56,6 +58,11 @@ impl AppState {
         let db_path = data_dir.join(db::DB_FILE_NAME);
         let (database, report) = Database::open(&db_path).inspect_err(|e| e.log())?;
         let db = Arc::new(database);
+
+        // A process cannot survive an application restart. Close any clone
+        // attempts left running by an interrupted previous session while
+        // preserving their partial folders for explicit user review.
+        db.write(|c| db::workspace::fail_interrupted(c))?;
 
         db.write(|c| {
             for m in &report.applied {
@@ -118,6 +125,7 @@ impl AppState {
             diagnostic_program,
             discoveries: discovery::Discoveries::default(),
             scans: scanner::Scans::default(),
+            clones: workspace::clone::Clones::default(),
             github_config: github::client::GithubConfig::from_env(),
             github_flows: github::DeviceFlows::default(),
             github_requests: github::Requests::default(),
@@ -179,6 +187,15 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::github_import_repository,
         commands::github_cancel_request,
         commands::github_repository_for,
+        commands::get_managed_workspace,
+        commands::approve_managed_workspace,
+        commands::preview_managed_clone,
+        commands::start_managed_clone,
+        commands::cancel_managed_clone,
+        commands::list_repository_clones,
+        commands::cleanup_managed_clone,
+        commands::inspect_existing_clone,
+        commands::link_existing_clone,
     ])
 }
 
@@ -755,5 +772,48 @@ mod ipc_tests {
             invoke(&h, "github_cancel_request", json!({ "requestId": "x" })).unwrap()["outcome"],
             "not_running"
         );
+    }
+
+    #[test]
+    fn managed_workspace_commands_enforce_explicit_paths_over_ipc() {
+        let h = harness();
+        assert!(invoke(&h, "get_managed_workspace", json!({}))
+            .unwrap()
+            .is_null());
+        let root = h.dir.path().join("managed-clones");
+        std::fs::create_dir(&root).unwrap();
+        let approved = invoke(
+            &h,
+            "approve_managed_workspace",
+            json!({ "path": root.display().to_string() }),
+        )
+        .unwrap();
+        assert_eq!(
+            approved["canonicalPath"],
+            std::fs::canonicalize(&root).unwrap().display().to_string()
+        );
+        assert_eq!(
+            invoke(&h, "get_managed_workspace", json!({})).unwrap()["id"],
+            approved["id"]
+        );
+        assert_eq!(
+            invoke(&h, "list_repository_clones", json!({ "limit": 25 }))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            invoke(&h, "cancel_managed_clone", json!({ "cloneId": "missing" })).unwrap()["outcome"],
+            "not_running"
+        );
+        let missing = invoke(
+            &h,
+            "preview_managed_clone",
+            json!({ "githubRepositoryId": "missing" }),
+        )
+        .unwrap_err();
+        assert_eq!(missing["code"], "RECORD_NOT_FOUND");
     }
 }

@@ -433,6 +433,8 @@ pub fn import_metadata_only(
     conn: &Connection,
     github_repository_id: &str,
 ) -> AppResult<(Repository, bool)> {
+    // A checkout discovered after this record was cached may already hold the identity.
+    link_existing(conn, &get_repository(conn, github_repository_id)?)?;
     let gh = get_repository(conn, github_repository_id)?;
     if let Some(id) = &gh.repository_id {
         return Ok((repositories::get(conn, id)?, false));

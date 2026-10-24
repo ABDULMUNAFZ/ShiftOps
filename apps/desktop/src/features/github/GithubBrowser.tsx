@@ -1,12 +1,20 @@
-import type { GithubBrowsePage, GithubBrowseParams, GithubPullRequest, Repository } from "@shiftops/core";
+import type {
+  CloneEvent,
+  GithubBrowsePage,
+  GithubBrowseParams,
+  GithubPullRequest,
+  GithubRepository,
+  LinkInspection,
+  Repository,
+} from "@shiftops/core";
 import { Badge, Button, Card, CardHeader, EmptyState, Spinner } from "@shiftops/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitPullRequest, Search, Square } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ErrorDisplay } from "../../components/ErrorDisplay";
 import { ExternalLink } from "../../components/ExternalLink";
 import { invalidateAfter } from "../../lib/invalidation";
-import { native } from "../../lib/native";
+import { native, onCloneEvent } from "../../lib/native";
 import { useGithubOrganizations, useGithubStatus } from "../../lib/queries";
 import { queryKeys } from "../../lib/queryKeys";
 
@@ -20,12 +28,12 @@ function relative(iso: string | null) {
 
 /** Browse repositories the connected GitHub account can access and import them as metadata. */
 export function GithubBrowser({ onClose }: { onClose: () => void }) {
-  const client = useQueryClient();
   const status = useGithubStatus();
   const connected = Boolean(status.data?.account && status.data.account.status === "connected");
   const orgs = useGithubOrganizations(connected);
   const [draft, setDraft] = useState("");
   const [params, setParams] = useState<GithubBrowseParams>({ page: 1, perPage: PER_PAGE, visibility: "all" });
+  const [selected, setSelected] = useState<GithubRepository | null>(null);
   const requestId = useRef<string | null>(null);
 
   const page = useQuery({
@@ -41,10 +49,6 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
         if (requestId.current === id) requestId.current = null;
       }
     },
-  });
-  const importRepo = useMutation({
-    mutationFn: (id: string) => native.githubImportRepository(id),
-    onSettled: () => invalidateAfter(client, "githubImport"),
   });
   const set = (patch: Partial<GithubBrowseParams>) => setParams((p) => ({ ...p, page: 1, ...patch }));
 
@@ -66,6 +70,7 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
         </EmptyState>
       ) : (
         <>
+          {selected ? <RepositoryImportPanel repository={selected} onClose={() => setSelected(null)} /> : null}
           <form
             className="flex flex-wrap items-end gap-2 border-b border-border px-4 py-2 text-sm"
             onSubmit={(e) => {
@@ -180,13 +185,8 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
                         {r.repositoryId ? (
                           <Badge tone="ok">In ShiftOps</Badge>
                         ) : (
-                          <Button
-                            size="sm"
-                            onClick={() => importRepo.mutate(r.id)}
-                            disabled={importRepo.isPending}
-                            aria-label={`Import ${r.fullName}`}
-                          >
-                            Import
+                          <Button size="sm" onClick={() => setSelected(r)} aria-label={`Add ${r.fullName}`}>
+                            Add
                           </Button>
                         )}
                       </td>
@@ -195,11 +195,6 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
                 </tbody>
               </table>
             )
-          ) : null}
-          {importRepo.isError ? (
-            <div className="p-4">
-              <ErrorDisplay title="Import failed" error={importRepo.error} />
-            </div>
           ) : null}
           <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted">
             <span>
@@ -229,6 +224,244 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
         </>
       )}
     </Card>
+  );
+}
+
+type ImportMode = "choose" | "clone" | "link";
+
+function RepositoryImportPanel({ repository, onClose }: { repository: GithubRepository; onClose: () => void }) {
+  const client = useQueryClient();
+  const [mode, setMode] = useState<ImportMode>("choose");
+  const [cloneEvent, setCloneEvent] = useState<CloneEvent | null>(null);
+  const [linkInspection, setLinkInspection] = useState<LinkInspection | null>(null);
+
+  const workspace = useQuery({ queryKey: queryKeys.workspace.active, queryFn: native.getManagedWorkspace });
+  const clones = useQuery({ queryKey: queryKeys.workspace.clones, queryFn: () => native.listRepositoryClones(25) });
+  const preview = useQuery({
+    queryKey: [...queryKeys.workspace.all, "preview", repository.id],
+    queryFn: () => native.previewManagedClone(repository.id),
+    enabled: mode === "clone",
+    retry: false,
+  });
+
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void onCloneEvent((event) => {
+      setCloneEvent(event);
+      if (event.type === "completed") {
+        void invalidateAfter(client, "workspace");
+      }
+    }).then((fn) => {
+      dispose = fn;
+    });
+    return () => dispose?.();
+  }, [client]);
+
+  const metadata = useMutation({
+    mutationFn: () => native.githubImportRepository(repository.id),
+    onSuccess: async () => {
+      await invalidateAfter(client, "githubImport");
+      onClose();
+    },
+  });
+  const approve = useMutation({
+    mutationFn: async () => {
+      const path = await native.pickDirectory("Choose a dedicated ShiftOps managed workspace");
+      if (!path) return null;
+      return native.approveManagedWorkspace(path);
+    },
+    onSuccess: async (value) => {
+      if (value) await invalidateAfter(client, "workspace");
+    },
+  });
+  const startClone = useMutation({
+    mutationFn: async () => {
+      if (!preview.data?.destination) throw new Error("No reviewed clone destination is available.");
+      return native.startManagedClone(repository.id, preview.data.destination);
+    },
+    onSuccess: async () => invalidateAfter(client, "workspace"),
+  });
+  const cleanup = useMutation({
+    mutationFn: ({ id, path }: { id: string; path: string }) => native.cleanupManagedClone(id, path),
+    onSuccess: async () => invalidateAfter(client, "workspace"),
+  });
+  const inspectLink = useMutation({
+    mutationFn: async () => {
+      const path = await native.pickDirectory(`Choose the existing clone for ${repository.fullName}`);
+      if (!path) return null;
+      return native.inspectExistingClone(repository.id, path);
+    },
+    onSuccess: (value) => setLinkInspection(value),
+  });
+  const link = useMutation({
+    mutationFn: (inspection: LinkInspection) =>
+      native.linkExistingClone(
+        repository.id,
+        inspection.path,
+        inspection.matches ? undefined : inspection.actualDisplay,
+      ),
+    onSuccess: async () => {
+      await invalidateAfter(client, "workspace");
+      onClose();
+    },
+  });
+
+  const lastAttempt = clones.data?.find((attempt) => attempt.githubRepositoryId === repository.id);
+  const error = metadata.error ?? approve.error ?? startClone.error ?? cleanup.error ?? inspectLink.error ?? link.error;
+
+  return (
+    <div className="border-b border-border bg-elevated/40 p-4" aria-label={`Import ${repository.fullName}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-medium">Add {repository.fullName}</h3>
+          <p className="mt-1 text-xs text-muted">Choose what ShiftOps may do with this repository.</p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+
+      {mode === "choose" ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          <Button onClick={() => metadata.mutate()} disabled={metadata.isPending}>
+            Metadata only
+          </Button>
+          <Button onClick={() => setMode("clone")}>Clone into managed workspace</Button>
+          <Button onClick={() => setMode("link")}>Link existing clone</Button>
+          <p className="text-xs text-muted">Browse metadata now; deep analysis needs a checkout.</p>
+          <p className="text-xs text-muted">ShiftOps owns the new checkout but never changes its code in Task 3.</p>
+          <p className="text-xs text-muted">Your existing checkout remains external and is never deleted.</p>
+        </div>
+      ) : null}
+
+      {mode === "clone" ? (
+        <div className="mt-3 space-y-3 text-sm">
+          <Button size="sm" variant="ghost" onClick={() => setMode("choose")}>
+            Back
+          </Button>
+          {workspace.data ? (
+            <p>
+              Approved workspace: <code>{workspace.data.canonicalPath}</code>
+            </p>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span>No managed workspace is approved.</span>
+              <Button size="sm" onClick={() => approve.mutate()} disabled={approve.isPending}>
+                Choose and approve folder
+              </Button>
+            </div>
+          )}
+          {preview.isFetching ? (
+            <p className="flex items-center gap-2 text-muted">
+              <Spinner /> Preparing preview…
+            </p>
+          ) : null}
+          {preview.data ? (
+            <div className="rounded-md border border-border p-3">
+              <p className="text-xs text-muted">Reviewed destination</p>
+              <code className="break-all">{preview.data.destination ?? "Unavailable"}</code>
+              {preview.data.problems.length ? (
+                <ul className="mt-2 list-disc pl-5 text-xs text-danger">
+                  {preview.data.problems.map((problem) => (
+                    <li key={problem}>{problem}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <Button
+                className="mt-3"
+                size="sm"
+                disabled={!preview.data.ready || startClone.isPending}
+                onClick={() => startClone.mutate()}
+              >
+                Start managed clone
+              </Button>
+            </div>
+          ) : null}
+          {cloneEvent?.type === "progress" ? (
+            <p className="text-xs text-muted">
+              {cloneEvent.phase ?? "Cloning"}
+              {cloneEvent.percent === null ? "" : ` ${cloneEvent.percent}%`} · {cloneEvent.line}
+            </p>
+          ) : null}
+          {cloneEvent?.type === "completed" ? (
+            <p className="text-xs">
+              Clone {cloneEvent.result.clone.status}. {cloneEvent.result.scanStarted ? "Repository scan started." : ""}
+            </p>
+          ) : null}
+          {lastAttempt && ["running", "failed", "cancelled"].includes(lastAttempt.status) ? (
+            <div className="rounded-md border border-border p-3 text-xs">
+              <p>
+                {lastAttempt.status}: {lastAttempt.destinationPath}
+              </p>
+              {lastAttempt.errorMessage ? <p className="mt-1 text-danger">{lastAttempt.errorMessage}</p> : null}
+              {lastAttempt.status === "running" ? (
+                <Button
+                  className="mt-2"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void native.cancelManagedClone(lastAttempt.id)}
+                >
+                  Cancel clone
+                </Button>
+              ) : lastAttempt.partialPathExists ? (
+                <Button
+                  className="mt-2"
+                  size="sm"
+                  variant="danger"
+                  onClick={() => cleanup.mutate({ id: lastAttempt.id, path: lastAttempt.destinationPath })}
+                >
+                  Delete this incomplete clone folder
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {mode === "link" ? (
+        <div className="mt-3 space-y-3 text-sm">
+          <Button size="sm" variant="ghost" onClick={() => setMode("choose")}>
+            Back
+          </Button>
+          <Button size="sm" onClick={() => inspectLink.mutate()} disabled={inspectLink.isPending}>
+            Choose existing clone
+          </Button>
+          {linkInspection ? (
+            <div className="rounded-md border border-border p-3 text-xs">
+              <p>
+                Folder: <code>{linkInspection.path}</code>
+              </p>
+              <p>
+                Expected: {linkInspection.expected.host}/{linkInspection.expected.owner}/{linkInspection.expected.repo}
+              </p>
+              <p>Actual: {linkInspection.actualDisplay}</p>
+              {!linkInspection.matches ? (
+                <p className="mt-2 text-warn">
+                  The remote does not match. Linking requires an explicit override and will be recorded.
+                </p>
+              ) : null}
+              <Button
+                className="mt-3"
+                size="sm"
+                variant={linkInspection.matches ? "primary" : "danger"}
+                onClick={() => link.mutate(linkInspection)}
+                disabled={link.isPending}
+              >
+                {linkInspection.matches
+                  ? "Link and scan"
+                  : `Override mismatch and link ${linkInspection.actualDisplay}`}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mt-3">
+          <ErrorDisplay title="Repository import failed" error={error} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

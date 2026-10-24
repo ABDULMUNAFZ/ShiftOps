@@ -163,6 +163,17 @@ impl ExecutionPolicy {
         }
     }
 
+    /// Managed-clone policy: the single mutating Git operation (an initial
+    /// `git clone`, exactly as `git::policy::clone_args` builds it) with the
+    /// working directory and the clone destination inside the approved
+    /// managed workspace `root`. Nothing else is allowed.
+    pub fn managed_clone(root: PathBuf) -> Self {
+        Self {
+            allowed: HashSet::from([CommandCategory::MutatingGit]),
+            cwd_roots: PathPolicy::new([root]),
+        }
+    }
+
     #[cfg(test)]
     pub fn allowing(categories: &[CommandCategory], roots: Vec<PathBuf>) -> Self {
         Self {
@@ -198,6 +209,24 @@ impl ExecutionPolicy {
                 ));
             }
             crate::git::policy::validate(&spec.args)?;
+        }
+        if spec.category == CommandCategory::MutatingGit {
+            if !matches!(&spec.program, Program::Named(name) if name == "git") {
+                return Err(AppError::new(
+                    ErrorCode::CommandNotAllowed,
+                    "mutating_git commands must run `git`.",
+                ));
+            }
+            crate::git::policy::validate_clone(&spec.args)?;
+            let dest = spec.args.last().map(String::as_str).unwrap_or_default();
+            let inside = crate::paths::validate(dest, &self.cwd_roots)?;
+            if inside.kind != crate::paths::PathKind::Directory || inside.is_symlink {
+                return Err(AppError::new(
+                    ErrorCode::PathNotAllowed,
+                    "The clone destination must be an existing directory ShiftOps created inside the managed workspace.",
+                )
+                .with_context("path", dest));
+            }
         }
         for (name, _) in &spec.env {
             let valid = !name.is_empty()

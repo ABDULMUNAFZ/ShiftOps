@@ -29,6 +29,11 @@ export const queryKeys = {
     intelligence: (id: string) => ["repositories", "intelligence", id] as const,
   },
   roots: ["repository-roots"] as const,
+  workspace: {
+    all: ["managed-workspace"] as const,
+    active: ["managed-workspace", "active"] as const,
+    clones: ["managed-workspace", "clones"] as const,
+  },
   github: {
     all: ["github"] as const,
     status: ["github", "status"] as const,

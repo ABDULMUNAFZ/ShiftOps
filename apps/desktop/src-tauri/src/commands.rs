@@ -868,3 +868,148 @@ pub fn github_repository_for(
         id.map(|id| crate::db::github::get_repository(c, &id)).transpose()
     })
 }
+
+// ---------------------------------------------------------------- managed workspaces and GitHub checkout imports
+
+#[tauri::command]
+pub fn get_managed_workspace(
+    state: State<'_, AppState>,
+) -> AppResult<Option<crate::db::workspace::ManagedWorkspace>> {
+    state.db.read(crate::db::workspace::active)
+}
+
+#[tauri::command]
+pub fn approve_managed_workspace(
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::workspace::ManagedWorkspace> {
+    crate::workspace::approve_workspace(&state.db, &path)
+}
+
+#[tauri::command]
+pub fn preview_managed_clone(
+    github_repository_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::workspace::ClonePreview> {
+    crate::workspace::preview(&state.db, github_config(&state)?, &github_repository_id)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartedClone {
+    clone: crate::db::workspace::RepositoryClone,
+}
+
+#[tauri::command]
+pub async fn start_managed_clone<R: Runtime>(
+    github_repository_id: String,
+    destination: String,
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> AppResult<StartedClone> {
+    let search = shell_path::search_path().await;
+    let config = github_config(&state)?.clone();
+    let context = crate::workspace::clone::CloneContext {
+        db: state.db.clone(),
+        config,
+        search,
+        log_dir: Some(state.log_dir.clone()),
+        sink: Arc::new(crate::workspace::clone::TauriCloneSink(app.clone())),
+        scans: state.scans.clone(),
+        scan_sink: Arc::new(crate::scanner::TauriScanSink(app)),
+    };
+    let (clone, _job) = state
+        .clones
+        .start(context, &github_repository_id, &destination)?;
+    Ok(StartedClone { clone })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelCloneResponse {
+    clone_id: String,
+    outcome: CancelOutcome,
+}
+
+#[tauri::command]
+pub fn cancel_managed_clone(
+    clone_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CancelCloneResponse> {
+    let outcome = if state.clones.cancel(&clone_id) {
+        CancelOutcome::Requested
+    } else {
+        CancelOutcome::NotRunning
+    };
+    Ok(CancelCloneResponse { clone_id, outcome })
+}
+
+#[tauri::command]
+pub fn list_repository_clones(
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::workspace::RepositoryClone>> {
+    state
+        .db
+        .read(|c| crate::db::workspace::list_clones(c, limit.unwrap_or(25).clamp(1, 100)))
+}
+
+#[tauri::command]
+pub fn cleanup_managed_clone(
+    clone_id: String,
+    confirmed_path: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::workspace::CleanupResult> {
+    crate::workspace::cleanup(&state.db, &clone_id, &confirmed_path)
+}
+
+#[tauri::command]
+pub async fn inspect_existing_clone(
+    github_repository_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::workspace::link::LinkInspection> {
+    let search = shell_path::search_path().await;
+    crate::workspace::link::inspect_link(&state.db, search, &github_repository_id, &path)
+        .await
+        .map(|(inspection, _)| inspection)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedCloneResult {
+    repository: Repository,
+    inspection: crate::workspace::link::LinkInspection,
+    scan_started: bool,
+}
+
+#[tauri::command]
+pub async fn link_existing_clone<R: Runtime>(
+    github_repository_id: String,
+    path: String,
+    mismatch_confirmation: Option<String>,
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> AppResult<LinkedCloneResult> {
+    let search = shell_path::search_path().await;
+    let (repository, inspection) = crate::workspace::link::link(
+        &state.db,
+        search,
+        &github_repository_id,
+        &path,
+        mismatch_confirmation.as_deref(),
+    )
+    .await?;
+    state.scans.start(
+        &repository.id,
+        false,
+        state.db.clone(),
+        search,
+        Arc::new(crate::scanner::TauriScanSink(app)),
+    )?;
+    Ok(LinkedCloneResult {
+        repository,
+        inspection,
+        scan_started: true,
+    })
+}

@@ -55,6 +55,8 @@ const repo: Repository = {
   lastScanStatus: "completed",
   lastScannedAt: "2026-10-24T11:00:00.000Z",
   scanSummary: null,
+  ownership: "external",
+  githubLinkMethod: "remote_match",
 };
 
 const scanned: RepositoryIntelligence = {

@@ -36,6 +36,7 @@ pub enum ErrorCode {
     GithubRateLimited,
     GithubAuthorizationExpired,
     GithubAuthorizationDenied,
+    GitAuthenticationRequired,
     InternalError,
 }
 
@@ -64,6 +65,7 @@ impl ErrorCode {
             Self::GithubRateLimited => "GITHUB_RATE_LIMITED",
             Self::GithubAuthorizationExpired => "GITHUB_AUTHORIZATION_EXPIRED",
             Self::GithubAuthorizationDenied => "GITHUB_AUTHORIZATION_DENIED",
+            Self::GitAuthenticationRequired => "GIT_AUTHENTICATION_REQUIRED",
             Self::InternalError => "INTERNAL_ERROR",
         }
     }
@@ -100,6 +102,7 @@ impl ErrorCode {
             Self::GithubRateLimited => "Wait until the rate limit resets, then try again.",
             Self::GithubAuthorizationExpired => "The code expired before it was approved. Start the connection again.",
             Self::GithubAuthorizationDenied => "Authorization was declined on GitHub. Start again if this was a mistake.",
+            Self::GitAuthenticationRequired => "Run `gh auth login` and then `gh auth setup-git` (or configure another Git credential helper for this host), then try again. ShiftOps never passes its stored token to Git.",
             Self::InternalError => "Restart ShiftOps. If the problem persists, report it with the copied details.",
         })
     }

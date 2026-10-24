@@ -5,6 +5,8 @@ import {
   appErrorSchema,
   appInfoSchema,
   branchInfoSchema,
+  cloneEventSchema,
+  clonePreviewSchema,
   campaignSchema,
   credentialMetadataSchema,
   databaseHealthSchema,
@@ -24,10 +26,13 @@ import {
   githubStatusSchema,
   importSummarySchema,
   keychainStatusSchema,
+  linkInspectionSchema,
+  managedWorkspaceSchema,
   migrationPatternSchema,
   pageSchema,
   processEventSchema,
   repositoryIntelligenceSchema,
+  repositoryCloneSchema,
   repositoryRootSchema,
   repositoryScanSchema,
   scanEventSchema,
@@ -35,6 +40,7 @@ import {
   ShiftOpsError,
   verificationRunSchema,
   type ActivityQuery,
+  type CloneEvent,
   type CredentialKind,
   type CredentialProvider,
   type DiagnosticKind,
@@ -210,7 +216,44 @@ export const native = {
     ),
   githubRepositoryFor: (repositoryId: string) =>
     call("github_repository_for", githubRepositorySchema.nullable(), { repositoryId }),
+
+  getManagedWorkspace: () => call("get_managed_workspace", managedWorkspaceSchema.nullable()),
+  approveManagedWorkspace: (path: string) => call("approve_managed_workspace", managedWorkspaceSchema, { path }),
+  previewManagedClone: (githubRepositoryId: string) =>
+    call("preview_managed_clone", clonePreviewSchema, { githubRepositoryId }),
+  startManagedClone: (githubRepositoryId: string, destination: string) =>
+    call("start_managed_clone", z.object({ clone: repositoryCloneSchema }), { githubRepositoryId, destination }),
+  cancelManagedClone: (cloneId: string) =>
+    call("cancel_managed_clone", z.object({ cloneId: z.string(), outcome: z.enum(["requested", "not_running"]) }), {
+      cloneId,
+    }),
+  listRepositoryClones: (limit = 25) => call("list_repository_clones", z.array(repositoryCloneSchema), { limit }),
+  cleanupManagedClone: (cloneId: string, confirmedPath: string) =>
+    call(
+      "cleanup_managed_clone",
+      z.object({ outcome: z.enum(["removed", "already_gone"]), clone: repositoryCloneSchema }),
+      { cloneId, confirmedPath },
+    ),
+  inspectExistingClone: (githubRepositoryId: string, path: string) =>
+    call("inspect_existing_clone", linkInspectionSchema, { githubRepositoryId, path }),
+  linkExistingClone: (githubRepositoryId: string, path: string, mismatchConfirmation?: string) =>
+    call(
+      "link_existing_clone",
+      z.object({ repository: repositorySchema, inspection: linkInspectionSchema, scanStarted: z.boolean() }),
+      { githubRepositoryId, path, mismatchConfirmation: mismatchConfirmation ?? null },
+    ),
 };
+
+export const CLONE_EVENT = "shiftops://clone";
+
+export async function onCloneEvent(handler: (event: CloneEvent) => void): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  return listen<unknown>(CLONE_EVENT, ({ payload }) => {
+    const parsed = cloneEventSchema.safeParse(payload);
+    if (parsed.success) handler(parsed.data);
+    else console.error("Dropped malformed clone event", z.prettifyError(parsed.error));
+  });
+}
 
 export const GITHUB_AUTH_EVENT = "shiftops://github-auth";
 

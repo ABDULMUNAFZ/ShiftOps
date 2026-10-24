@@ -16,6 +16,7 @@ pub mod repositories;
 pub mod roots;
 pub mod settings;
 pub mod verification;
+pub mod workspace;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

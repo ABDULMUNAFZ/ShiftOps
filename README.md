@@ -117,7 +117,11 @@ ShiftOps talks to GitHub from its Rust core. Tokens are stored only in the OS ke
 
 **Fine-grained personal access token (fallback):** grant access to the repositories you need, with Metadata, Contents, Pull requests and Checks set to read-only, plus organisation Members (read) to list organisations. Paste it in Integrations → GitHub. ShiftOps validates it before storing it.
 
-Then use **Repositories → Browse GitHub** to import repositories as metadata. Discovering a local checkout of an imported repository links it automatically.
+Then use **Repositories → Browse GitHub** and choose one of three modes:
+
+- **Metadata only** inventories the repository without downloading it; deep analysis remains unavailable.
+- **Clone into managed workspace** previews a new destination under a folder you explicitly approve, streams clone progress and scans the checkout after success.
+- **Link existing clone** compares its normalized remote with the GitHub repository and requires an explicit override when they differ. Existing clones remain external and are never modified or deleted.
 
 ## Commands
 

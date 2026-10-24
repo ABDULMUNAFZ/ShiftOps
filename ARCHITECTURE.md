@@ -191,7 +191,9 @@ Events are emitted on `shiftops://process`. `lib/processStore.ts` keeps the last
 - **PAT:** validated against the same endpoints before anything is stored.
 - **Accounts:** one connected account. SQLite holds the login, id, auth method, keychain credential kind, scopes (when GitHub reports them; fine-grained tokens do not), validation time and the last rate-limit headers.
 - **Persistence:** browsed repositories and pull requests are stored on every fetch, keyed by stable GitHub ids, so renames update in place. A pull request's mergeability and checks are kept across list refreshes until its head SHA changes.
-- **Import:** `github_import_repository` creates an untrusted, metadata-only `repositories` row with `source_type = 'github'`. `record_local_discovery` turns such a row into a local-linked one when a checkout with the same origin is discovered.
+- **Import modes:** metadata-only creates an untrusted record; managed clone uses the single policy-built mutating Git command inside an explicitly approved workspace; link-existing inspects a checkout read-only and marks it external. All three converge on the same repository id.
+- **Managed clone boundary:** destinations are exactly two path segments below the canonical approved root. Hooks, templates, submodules, interactive credentials, LFS smudging and non-HTTPS transports are disabled. Clone progress is emitted on `shiftops://clone`; failures and cancellations retain their folder until an exact-path confirmed cleanup passes all safety checks.
+- **Local link boundary:** normalized GitHub identities are compared before linking. A mismatch override records the actual identity and survives rediscovery. External checkouts are never modified or deleted.
 - **Cancellation:** browse, details and pull-request listing accept a `requestId`, cancelled through `github_cancel_request`.
 
 ## Validation

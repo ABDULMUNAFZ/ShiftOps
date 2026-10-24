@@ -17,6 +17,7 @@ export const changeKinds = [
   "scan",
   "github",
   "githubImport",
+  "workspace",
 ] as const;
 export type ChangeKind = (typeof changeKinds)[number];
 
@@ -39,6 +40,13 @@ const affected: Record<ChangeKind, readonly QueryKey[]> = {
   github: [queryKeys.github.all, queryKeys.credentials, queryKeys.activity.all, queryKeys.health.database],
   // Importing a GitHub repository creates a ShiftOps repository and links the cached record.
   githubImport: [queryKeys.github.all, queryKeys.repositories.all, queryKeys.activity.all, queryKeys.health.database],
+  workspace: [
+    queryKeys.workspace.all,
+    queryKeys.github.all,
+    queryKeys.repositories.all,
+    queryKeys.activity.all,
+    queryKeys.health.database,
+  ],
 };
 
 export function invalidationTargets(kind: ChangeKind): readonly QueryKey[] {

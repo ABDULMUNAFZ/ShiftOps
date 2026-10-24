@@ -66,6 +66,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "github",
         sql: include_str!("sql/0007_github.sql"),
     },
+    Migration {
+        version: 8,
+        name: "managed_workspaces",
+        sql: include_str!("sql/0008_managed_workspaces.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {
@@ -279,8 +284,10 @@ mod tests {
                 "github_organizations",
                 "github_pull_requests",
                 "github_repositories",
+                "managed_workspaces",
                 "migration_patterns",
                 "repositories",
+                "repository_clones",
                 "repository_conflicts",
                 "repository_dependencies",
                 "repository_facts",
@@ -388,6 +395,9 @@ mod tests {
                 conn.execute_batch(
                     "INSERT INTO repositories (id, source_type, name, local_path, trust_status, created_at, updated_at)
                      VALUES ('r1', 'local', 'api', '/work/api', 'trusted', 't', 't');
+                     INSERT INTO repositories (id, source_type, name, github_host, github_owner, github_repo,
+                         trust_status, created_at, updated_at)
+                     VALUES ('r2', 'github', 'web', 'github.com', 'acme', 'web', 'untrusted', 't', 't');
                      INSERT INTO activity_events (id, entity_type, event_type, severity, summary, created_at)
                      VALUES ('a1', 'app', 'x', 'info', 'kept', 't');",
                 )
@@ -420,6 +430,23 @@ mod tests {
                     )
                     .unwrap();
                 assert_eq!((trust.as_str(), root), ("trusted", None), "from {from}");
+                // Version 8: existing checkouts become external; GitHub records keep how they were linked.
+                let owned = |id: &str| -> (Option<String>, Option<String>) {
+                    conn.query_row(
+                        "SELECT ownership, github_link_method FROM repositories WHERE id = ?1",
+                        [id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .unwrap()
+                };
+                if from < 8 {
+                    assert_eq!(owned("r1"), (Some("external".into()), None), "from {from}");
+                    assert_eq!(
+                        owned("r2"),
+                        (None, Some("metadata_only".into())),
+                        "from {from}"
+                    );
+                }
                 let kept: i64 = conn
                     .query_row("SELECT COUNT(*) FROM activity_events", [], |r| r.get(0))
                     .unwrap();

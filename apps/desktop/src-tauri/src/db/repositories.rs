@@ -27,6 +27,14 @@ string_enum!(ScanStatus {
     Cancelled => "cancelled",
 });
 string_enum!(ConfirmationStatus { Inferred => "inferred", Confirmed => "confirmed", Rejected => "rejected" });
+string_enum!(Ownership { External => "external", ShiftopsManaged => "shiftops_managed" });
+string_enum!(LinkMethod {
+    MetadataOnly => "metadata_only",
+    Discovery => "discovery",
+    RemoteMatch => "remote_match",
+    Override => "override",
+    ManagedClone => "managed_clone",
+});
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +69,10 @@ pub struct Repository {
     pub last_scanned_at: Option<String>,
     /// Headline facts from the latest completed scan (`scanner::summarize`).
     pub scan_summary: Option<Value>,
+    /// Who owns the files: `None` for metadata-only records.
+    pub ownership: Option<Ownership>,
+    /// How the GitHub identity was attached, when there is one.
+    pub github_link_method: Option<LinkMethod>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -94,7 +106,7 @@ pub struct GitState {
 const REPO_COLUMNS: &str = "SELECT id, source_type, name, local_path, remote_url, github_host, github_owner, github_repo, \
     default_branch, current_branch, current_commit, trust_status, created_at, updated_at, root_id, git_kind, \
     is_detached, is_dirty, staged_count, modified_count, untracked_count, last_commit_at, git_collected_at, \
-    git_warnings_json, \
+    git_warnings_json, ownership, github_link_method, \
     (SELECT s.status FROM repository_scans s WHERE s.repository_id = repositories.id \
         ORDER BY s.started_at DESC, s.rowid DESC LIMIT 1) AS last_scan_status, \
     (SELECT s.completed_at FROM repository_scans s WHERE s.repository_id = repositories.id AND s.status = 'completed' \
@@ -131,6 +143,8 @@ fn map_repo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Repository> {
         last_scan_status: r.get("last_scan_status")?,
         last_scanned_at: r.get("last_scanned_at")?,
         scan_summary: json_col_opt(r, "scan_summary_json")?,
+        ownership: r.get("ownership")?,
+        github_link_method: r.get("github_link_method")?,
     })
 }
 
@@ -165,6 +179,18 @@ pub fn record_local_discovery(
             |r| r.get(0),
         )
         .optional()?;
+    // A GitHub identity the user attached by explicit override stays attached;
+    // the checkout's own origin does not replace it.
+    let prior = existing
+        .as_deref()
+        .map(|id| prior_link(conn, id))
+        .transpose()?;
+    let overridden = prior
+        .as_ref()
+        .filter(|p| p.method == Some(LinkMethod::Override));
+    if overridden.is_some() {
+        github = None;
+    }
     // One registered repository holds each GitHub identity. A metadata-only
     // GitHub record (no local path) becomes local-linked by taking this
     // checkout. Other checkouts and worktrees of an already-linked repository
@@ -195,14 +221,43 @@ pub fn record_local_discovery(
     let warnings = serde_json::to_string(&warnings)?;
     let id = existing.clone().unwrap_or_else(new_id);
     let now = time_util::now();
+    let (gh_host, gh_owner, gh_repo, method) = match (overridden, github) {
+        (Some(p), _) => (
+            p.host.clone(),
+            p.owner.clone(),
+            p.repo.clone(),
+            Some(LinkMethod::Override),
+        ),
+        (None, Some(g)) => {
+            // Keep a more specific method when the identity is unchanged.
+            let prior = match existing.as_deref() {
+                Some(id) if prior.is_none() => Some(prior_link(conn, id)?),
+                _ => prior,
+            };
+            let method = match prior {
+                Some(p)
+                    if p.same_identity(g)
+                        && matches!(
+                            p.method,
+                            Some(LinkMethod::RemoteMatch | LinkMethod::ManagedClone)
+                        ) =>
+                {
+                    p.method
+                }
+                _ => Some(LinkMethod::Discovery),
+            };
+            (g.host.clone(), g.owner.clone(), g.repo.clone(), method)
+        }
+        (None, None) => (None, None, None, None),
+    };
     let values = params![
         id,
         record.name,
         record.local_path,
         origin.map(|o| o.sanitized_url.clone()),
-        github.and_then(|o| o.host.clone()),
-        github.and_then(|o| o.owner.clone()),
-        github.and_then(|o| o.repo.clone()),
+        gh_host,
+        gh_owner,
+        gh_repo,
         m.default_branch,
         m.current_branch,
         m.head_commit,
@@ -217,6 +272,7 @@ pub fn record_local_discovery(
         record.collected_at,
         warnings,
         now,
+        method,
     ];
     if existing.is_some() {
         conn.execute(
@@ -224,7 +280,8 @@ pub fn record_local_discovery(
                  github_repo = ?7, default_branch = ?8, current_branch = ?9, current_commit = ?10, root_id = ?11,
                  git_kind = ?12, is_detached = ?13, is_dirty = ?14, staged_count = ?15, modified_count = ?16,
                  untracked_count = ?17, last_commit_at = ?18, git_collected_at = ?19, git_warnings_json = ?20,
-                 local_path = ?3, updated_at = ?21
+                 local_path = ?3, updated_at = ?21, github_link_method = ?22,
+                 ownership = COALESCE(ownership, 'external')
              WHERE id = ?1",
             values,
         )?;
@@ -233,13 +290,47 @@ pub fn record_local_discovery(
             "INSERT INTO repositories (id, source_type, name, local_path, remote_url, github_host, github_owner,
                  github_repo, default_branch, current_branch, current_commit, trust_status, root_id, git_kind,
                  is_detached, is_dirty, staged_count, modified_count, untracked_count, last_commit_at,
-                 git_collected_at, git_warnings_json, created_at, updated_at)
+                 git_collected_at, git_warnings_json, created_at, updated_at, github_link_method, ownership)
              VALUES (?1, 'local', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'untrusted', ?11, ?12, ?13, ?14, ?15, ?16,
-                 ?17, ?18, ?19, ?20, ?21, ?21)",
+                 ?17, ?18, ?19, ?20, ?21, ?21, ?22, 'external')",
             values,
         )?;
     }
     Ok((get(conn, &id)?, existing.is_none()))
+}
+
+/// The GitHub identity a record holds and how it was attached.
+#[derive(Debug, Clone)]
+struct PriorLink {
+    method: Option<LinkMethod>,
+    host: Option<String>,
+    owner: Option<String>,
+    repo: Option<String>,
+}
+
+impl PriorLink {
+    fn same_identity(&self, g: &crate::git::remote::RemoteInfo) -> bool {
+        let eq = |a: &Option<String>, b: &Option<String>| match (a, b) {
+            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+            _ => false,
+        };
+        eq(&self.host, &g.host) && eq(&self.owner, &g.owner) && eq(&self.repo, &g.repo)
+    }
+}
+
+fn prior_link(conn: &Connection, id: &str) -> AppResult<PriorLink> {
+    Ok(conn.query_row(
+        "SELECT github_link_method, github_host, github_owner, github_repo FROM repositories WHERE id = ?1",
+        [id],
+        |r| {
+            Ok(PriorLink {
+                method: r.get(0)?,
+                host: r.get(1)?,
+                owner: r.get(2)?,
+                repo: r.get(3)?,
+            })
+        },
+    )?)
 }
 
 /// Canonical local paths already registered, for marking discovery results.
@@ -273,8 +364,8 @@ pub fn create(conn: &Connection, new: &NewRepository) -> AppResult<Repository> {
     let opt = |s: String| (!s.is_empty()).then_some(s);
     conn.execute(
         "INSERT INTO repositories (id, source_type, name, local_path, remote_url, github_host, github_owner, github_repo,
-             default_branch, trust_status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'untrusted', ?10, ?10)",
+             default_branch, trust_status, created_at, updated_at, ownership, github_link_method)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'untrusted', ?10, ?10, ?11, ?12)",
         params![
             id,
             new.source_type,
@@ -285,7 +376,13 @@ pub fn create(conn: &Connection, new: &NewRepository) -> AppResult<Repository> {
             opt(g.owner),
             opt(g.repo),
             new.default_branch,
-            now
+            now,
+            new.local_path.as_ref().map(|_| Ownership::External),
+            new.github.as_ref().map(|_| if new.local_path.is_some() {
+                LinkMethod::Discovery
+            } else {
+                LinkMethod::MetadataOnly
+            }),
         ],
     )?;
     get(conn, &id)

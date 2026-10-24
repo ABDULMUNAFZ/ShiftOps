@@ -62,6 +62,8 @@ export const repositorySchema = z.object({
   lastScanStatus: z.enum(["queued", "running", "completed", "failed", "cancelled"]).nullable(),
   lastScannedAt: timestamp.nullable(),
   scanSummary: z.lazy(() => scanSummarySchema).nullable(),
+  ownership: z.enum(["external", "shiftops_managed"]).nullable(),
+  githubLinkMethod: z.enum(["remote_match", "override", "managed_clone"]).nullable(),
 });
 export type Repository = z.infer<typeof repositorySchema>;
 
@@ -704,3 +706,77 @@ export const githubRepositoryDetailsSchema = z.object({
 });
 
 export const githubImportResultSchema = z.object({ repository: repositorySchema, created: z.boolean() });
+
+// ---------------------------------------------------------------- managed workspaces and checkout imports
+
+export const managedWorkspaceSchema = z.object({
+  id: z.string(),
+  canonicalPath: z.string(),
+  approvedAt: timestamp,
+  createdAt: timestamp,
+});
+export type ManagedWorkspace = z.infer<typeof managedWorkspaceSchema>;
+
+export const repositoryCloneSchema = z.object({
+  id: z.string(),
+  repositoryId: z.string().nullable(),
+  githubRepositoryId: z.string().nullable(),
+  workspaceId: z.string(),
+  fullName: z.string(),
+  cloneUrl: z.string(),
+  destinationPath: z.string(),
+  status: z.enum(["running", "succeeded", "failed", "cancelled", "cleaned_up"]),
+  runId: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  partialPathExists: z.boolean(),
+  startedAt: timestamp,
+  completedAt: timestamp.nullable(),
+  cleanedAt: timestamp.nullable(),
+});
+export type RepositoryClone = z.infer<typeof repositoryCloneSchema>;
+
+export const clonePreviewSchema = z.object({
+  githubRepositoryId: z.string(),
+  fullName: z.string(),
+  private: z.boolean(),
+  workspace: managedWorkspaceSchema.nullable(),
+  cloneUrl: z.string().nullable(),
+  destination: z.string().nullable(),
+  repositoryId: z.string().nullable(),
+  problems: z.array(z.string()),
+  ready: z.boolean(),
+});
+export type ClonePreview = z.infer<typeof clonePreviewSchema>;
+
+export const linkIdentitySchema = z.object({ host: z.string(), owner: z.string(), repo: z.string() });
+export const linkInspectionSchema = z.object({
+  githubRepositoryId: z.string(),
+  path: z.string(),
+  gitKind: z.enum(["standard", "worktree", "submodule", "git_file"]),
+  remoteUrl: z.string().nullable(),
+  expected: linkIdentitySchema,
+  actual: linkIdentitySchema.nullable(),
+  actualDisplay: z.string(),
+  matches: z.boolean(),
+  warnings: z.array(z.string()),
+});
+export type LinkInspection = z.infer<typeof linkInspectionSchema>;
+
+export const cloneResultSchema = z.object({
+  clone: repositoryCloneSchema,
+  repository: repositorySchema.nullable(),
+  error: appErrorSchema.nullable(),
+  scanStarted: z.boolean(),
+});
+export const cloneEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("progress"),
+    cloneId: z.string(),
+    phase: z.string().nullable(),
+    percent: z.number().int().min(0).max(100).nullable(),
+    line: z.string(),
+  }),
+  z.object({ type: z.literal("completed"), result: cloneResultSchema }),
+]);
+export type CloneEvent = z.infer<typeof cloneEventSchema>;

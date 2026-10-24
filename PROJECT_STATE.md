@@ -4,14 +4,14 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 
 ## 0. Status at a glance
 
-| Task                                                                  | State                                                                                         | Commits                                          |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| 1. Foundation (shell, environment checks, website)                    | Complete                                                                                      | `cca3cf6`                                        |
-| 2. Persistence, credentials, safe execution, activity                 | Complete                                                                                      | `4701627`, Windows CI fixes `5c6ea42`, `824691f` |
-| 3. Product profile, local repository intelligence, GitHub integration | **In progress**: milestones 1–4 done; milestones 5–6 not started (specification not received) | `d388ff4`, `0e10fa1`, `43f264b`, `62a1b4b`       |
-| 4. Campaign planning, dependency intelligence, Devin integration      | Not started. Devin integration does not exist.                                                |                                                  |
-| 5. Migration execution, verification, Devin repair loop               | Not started                                                                                   |                                                  |
-| 6. End-to-end workflow, packaging, security audit, submission         | Not started                                                                                   |                                                  |
+| Task                                                                  | State                                                                                    | Commits                                                      |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 1. Foundation (shell, environment checks, website)                    | Complete                                                                                 | `cca3cf6`                                                    |
+| 2. Persistence, credentials, safe execution, activity                 | Complete                                                                                 | `4701627`, Windows CI fixes `5c6ea42`, `824691f`             |
+| 3. Product profile, local repository intelligence, GitHub integration | **In progress**: managed clone/link complete; repository management and readiness remain | `d388ff4`, `0e10fa1`, `43f264b`, `62a1b4b` plus current work |
+| 4. Campaign planning, dependency intelligence, Devin integration      | Not started. Devin integration does not exist.                                           |                                                              |
+| 5. Migration execution, verification, Devin repair loop               | Not started                                                                              |                                                              |
+| 6. End-to-end workflow, packaging, security audit, submission         | Not started                                                                              |                                                              |
 
 - **Repository:** `https://github.com/ABDULMUNAFZ/ShiftOps` (public). Branch `main` tracks `origin/main`. The last code commit is `62a1b4b`; the only commit after it is the docs-only hand-off commit that rewrote this file.
 - **CI:** GitHub Actions `ci.yml` runs TypeScript plus Rust on Linux, macOS and Windows. Last run for `62a1b4b` (40120833159) passed all four jobs.
@@ -184,7 +184,33 @@ Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shifto
 - **Build size:** the desktop bundle is a single chunk of roughly 600 kB.
 - **Build Log artifact** (claude.ai, pinned) mirrors this file. If they disagree, this file wins.
 
+## 8a. Managed clone and link milestone (2026-10-25)
+
+The full Task 3 continuation specification was received. Managed clone and existing-clone linking are implemented and locally verified. The real database was not touched during development; no dev app was running.
+
+Implemented across Rust, IPC and React, with `pnpm check` at **85 JavaScript tests and 175 Rust tests passed, 2 ignored**:
+
+- Migration 8 `0008_managed_workspaces.sql`: `managed_workspaces` (with `approval_seq`), `repository_clones` (partial unique index on open destinations), `repositories.ownership` (`external` / `shiftops_managed`) and `repositories.github_link_method`, with backfill. Upgrade tests cover every earlier version.
+- `git/policy.rs`: `clone_args` / `validate_clone` / `validate_clone_url`: the one mutating Git command (HTTPS only, `--template=`, `core.hooksPath=/dev/null`, `--no-recurse-submodules`, `credential.interactive=false`, no credentials in the URL). `ExecutionPolicy::managed_clone(root)` checks the destination is an existing real directory inside the root.
+- `process/runner.rs`: a lone `\r` now ends a line, so clone progress streams.
+- `db/workspace.rs`: workspace approval, clone attempts, `attach_checkout` (a metadata-only record becomes local without a duplicate).
+- `db/repositories.rs`: ownership and link method on records; an `override` link survives rediscovery. `db/github.rs`: `import_metadata_only` reuses a checkout that already holds the identity.
+- `workspace/mod.rs`: root validation (refuses home and its ancestors, repositories, overlaps with registered checkouts), destination derivation, preview, guarded cleanup (exact recorded path, confirmed by repeating the path, failed or cancelled attempts only, never roots, home, links or registered repositories).
+- `workspace/clone.rs`: clone job with progress events (`shiftops://clone`), cancellation, failure classification (new code `GIT_AUTHENTICATION_REQUIRED`, also added to `errors.ts`), linking, then a scan. Tested against a local dumb-HTTP server.
+- `workspace/link.rs`: inspect and link an existing clone; a mismatch needs the exact `actualDisplay` confirmed; ownership `external`.
+- AppState closes interrupted clone attempts on startup and owns the live clone-job registry. Nine typed Tauri commands expose workspace approval, preview/start/cancel/list/cleanup and inspect/link.
+- Shared Zod contracts validate workspace, clone, progress and link results. GitHub Browse offers all three import modes with destination review, progress, cancellation, retained-failure cleanup and mismatch confirmation.
+- IPC and component tests cover the new boundary. Architecture, security, README, changelog and AI usage records describe the actual behavior.
+
+Still to do, in order:
+
+1. Commit `feat: add managed clone and local linking`, push, and verify cross-platform CI.
+2. Milestone 5: list columns (source/ownership, GitHub state, last scan), trust-change and delete-record commands with activity, the five import actions, metadata-only detail states, and the Devin note "Full Devin workflow arrives in Task 4."
+3. Submission Readiness: native evidence collector plus pure tested status computation, bounded redacted tracked-secret scan, validation record and desktop view. `Submitted` is never automatic and final SHA stays unset until Task 6.
+
 ## 9. Exact next step
+
+**Superseded by §8a** — continue from its list. (Text below is the earlier note.)
 
 Task 3 milestones 5 and 6 need the user's full specification, which was cut off in two pastes. Ask for it, preferably in several smaller messages:
 

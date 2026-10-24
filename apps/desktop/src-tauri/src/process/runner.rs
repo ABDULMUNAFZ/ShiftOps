@@ -549,9 +549,17 @@ async fn read_lines<R: AsyncRead + Unpin>(
             Ok(n) => n,
         };
         pending.extend_from_slice(&buf[..n]);
-        while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = pending.drain(..=pos).collect();
-            if tx.send(send(&line[..line.len() - 1])).await.is_err() {
+        // `\n` ends a line. A lone `\r` does too, so progress meters that
+        // redraw one line (`git clone --progress`) stream as separate lines;
+        // `\r\n` stays one line ending.
+        while let Some(pos) = pending.iter().position(|b| *b == b'\n' || *b == b'\r') {
+            let end = match (pending[pos], pending.get(pos + 1)) {
+                (b'\r', None) => break, // wait: the next chunk may start with `\n`
+                (b'\r', Some(b'\n')) => pos + 1,
+                _ => pos,
+            };
+            let line: Vec<u8> = pending.drain(..=end).collect();
+            if tx.send(send(&line[..pos])).await.is_err() {
                 return;
             }
         }
@@ -672,6 +680,27 @@ mod tests {
 
     #[derive(Default)]
     struct Collect(Mutex<Vec<ProcessEvent>>);
+
+    #[tokio::test]
+    async fn carriage_returns_split_progress_lines_but_crlf_stays_one_ending() {
+        let (tx, mut rx) = mpsc::channel(64);
+        let input: &[u8] = b"Receiving 10%\rReceiving 55%\rReceiving 100%, done.\nwin\r\nlast";
+        read_lines(input, Stream::Stderr, tx, Redactor::default()).await;
+        let mut lines = Vec::new();
+        while let Some(l) = rx.recv().await {
+            lines.push(l.text);
+        }
+        assert_eq!(
+            lines,
+            [
+                "Receiving 10%",
+                "Receiving 55%",
+                "Receiving 100%, done.",
+                "win",
+                "last"
+            ]
+        );
+    }
 
     impl EventSink for Collect {
         fn emit(&self, event: &ProcessEvent) {
