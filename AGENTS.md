@@ -15,6 +15,8 @@ Read `PROJECT_STATE.md` first. It records the current step, decisions and the ex
 9. **React never runs SQL.** Add a service function in `db/`, a command, a Zod schema in `packages/core/src/domain.ts`, a wrapper in `lib/native.ts`, a key in `lib/queryKeys.ts` and, if it writes, an entry in `lib/invalidation.ts`.
 10. **Tests use temporary databases and the test keychain service** (`credentials::tests::TestKeychain`). Never touch the real app data directory or `dev.shiftops.desktop` keychain entries from tests.
 
+11. **Stop the dev app before changing Rust or migrations.** `pnpm dev:desktop` rebuilds on every Rust change and applies new migrations to the real database in `~/Library/Application Support/dev.shiftops.desktop/`. Stop it (only the PIDs you started) before editing, and restart it only to apply a finished migration.
+
 ## Where things go
 
 | Change                           | Location                                                                                                                                                                                 |

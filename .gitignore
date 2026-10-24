@@ -10,3 +10,4 @@ target/
 apps/desktop/src-tauri/gen/schemas/
 coverage/
 apps/website/next-env.d.ts
+!.env.example

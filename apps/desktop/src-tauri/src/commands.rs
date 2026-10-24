@@ -633,3 +633,238 @@ pub fn list_repository_scans(
         .db
         .read(|c| repositories::list_scans(c, &repository_id, &params))
 }
+
+// ---------------------------------------------------------------- GitHub
+
+fn github_config(state: &AppState) -> AppResult<&crate::github::client::GithubConfig> {
+    state.github_config.as_ref().map_err(Clone::clone)
+}
+
+#[tauri::command]
+pub fn github_status(state: State<'_, AppState>) -> AppResult<crate::github::GithubStatus> {
+    crate::github::status(github_config(&state)?, &state.db, &state.credentials)
+}
+
+/// Start OAuth device sign-in. Progress arrives as `shiftops://github-auth` events.
+#[tauri::command]
+pub async fn github_start_device_flow<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> AppResult<crate::github::DeviceFlowStart> {
+    let config = github_config(&state)?.clone();
+    let (start, _handle) = state
+        .github_flows
+        .start(
+            config,
+            state.db.clone(),
+            state.credentials.clone(),
+            Arc::new(crate::github::TauriAuthSink(app)),
+        )
+        .await?;
+    Ok(start)
+}
+
+#[tauri::command]
+pub fn github_cancel_device_flow(
+    flow_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CancelDiscoveryResponse> {
+    let outcome = if state.github_flows.cancel(&flow_id) {
+        CancelOutcome::Requested
+    } else {
+        CancelOutcome::NotRunning
+    };
+    Ok(CancelDiscoveryResponse {
+        discovery_id: flow_id,
+        outcome,
+    })
+}
+
+/// Validate and store a personal access token. The token is never returned.
+#[tauri::command]
+pub async fn github_connect_pat(
+    token: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::github::GithubAccount> {
+    let token = Secret::new(token);
+    crate::github::connect_pat(github_config(&state)?, &state.db, &state.credentials, token).await
+}
+
+#[tauri::command]
+pub async fn github_refresh(
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::github::GithubAccount> {
+    crate::github::refresh(github_config(&state)?, &state.db, &state.credentials).await
+}
+
+#[tauri::command]
+pub fn github_disconnect(
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<Option<crate::db::github::GithubAccount>> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Disconnecting GitHub requires confirmation.",
+        ));
+    }
+    crate::github::disconnect(&state.db, &state.credentials)
+}
+
+#[tauri::command]
+pub fn github_list_organizations(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::github::GithubOrganization>> {
+    let account = state.db.read(crate::db::github::active)?.ok_or_else(|| {
+        AppError::new(
+            crate::error::ErrorCode::GithubAuthenticationFailed,
+            "GitHub is not connected.",
+        )
+    })?;
+    state
+        .db
+        .read(|c| crate::db::github::organizations(c, &account.id))
+}
+
+#[tauri::command]
+pub async fn github_browse_repositories(
+    params: crate::github::BrowseParams,
+    request_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<crate::github::BrowsePage> {
+    let config = github_config(&state)?;
+    state
+        .github_requests
+        .run(
+            request_id,
+            crate::github::browse(config, &state.db, &state.credentials, &params),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn github_repository_details(
+    owner: String,
+    name: String,
+    request_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<crate::github::RepositoryDetails> {
+    let config = github_config(&state)?;
+    state
+        .github_requests
+        .run(
+            request_id,
+            crate::github::details(config, &state.db, &state.credentials, &owner, &name),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn github_list_pull_requests(
+    owner: String,
+    name: String,
+    request_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::github::GithubPullRequest>> {
+    let config = github_config(&state)?;
+    state
+        .github_requests
+        .run(
+            request_id,
+            crate::github::pull_requests(config, &state.db, &state.credentials, &owner, &name),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn github_get_pull_request(
+    owner: String,
+    name: String,
+    number: i64,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::github::GithubPullRequest> {
+    crate::github::pull_request(
+        github_config(&state)?,
+        &state.db,
+        &state.credentials,
+        &owner,
+        &name,
+        number,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn github_get_file(
+    owner: String,
+    name: String,
+    path: String,
+    git_ref: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<crate::github::RemoteFile> {
+    crate::github::file(
+        github_config(&state)?,
+        &state.db,
+        &state.credentials,
+        &owner,
+        &name,
+        &path,
+        git_ref.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn github_rate_limit(state: State<'_, AppState>) -> AppResult<serde_json::Value> {
+    crate::github::rate_limit(github_config(&state)?, &state.db, &state.credentials).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubImportResult {
+    repository: Repository,
+    created: bool,
+}
+
+/// Import a browsed GitHub repository as metadata only (no clone).
+#[tauri::command]
+pub fn github_import_repository(
+    github_repository_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<GithubImportResult> {
+    let (repository, created) = crate::github::import(&state.db, &github_repository_id)?;
+    Ok(GithubImportResult {
+        repository,
+        created,
+    })
+}
+
+#[tauri::command]
+pub fn github_cancel_request(
+    request_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CancelDiscoveryResponse> {
+    let outcome = if state.github_requests.cancel(&request_id) {
+        CancelOutcome::Requested
+    } else {
+        CancelOutcome::NotRunning
+    };
+    Ok(CancelDiscoveryResponse {
+        discovery_id: request_id,
+        outcome,
+    })
+}
+
+/// The cached GitHub repository record linked to a ShiftOps repository, if any.
+#[tauri::command]
+pub fn github_repository_for(
+    repository_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Option<crate::db::github::GithubRepository>> {
+    state.db.read(|c| {
+        use rusqlite::OptionalExtension;
+        let id: Option<String> = c
+            .query_row("SELECT id FROM github_repositories WHERE repository_id = ?1 ORDER BY synced_at DESC LIMIT 1", [&repository_id], |r| r.get(0))
+            .optional()?;
+        id.map(|id| crate::db::github::get_repository(c, &id)).transpose()
+    })
+}

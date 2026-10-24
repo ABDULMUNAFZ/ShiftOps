@@ -8,10 +8,20 @@ import {
   campaignSchema,
   credentialMetadataSchema,
   databaseHealthSchema,
+  deviceFlowEventSchema,
+  deviceFlowStartSchema,
   discoveryEventSchema,
   discoveryResultSchema,
   environmentReportSchema,
   executionLimitsSchema,
+  githubAccountSchema,
+  githubBrowsePageSchema,
+  githubImportResultSchema,
+  githubOrganizationSchema,
+  githubPullRequestSchema,
+  githubRepositoryDetailsSchema,
+  githubRepositorySchema,
+  githubStatusSchema,
   importSummarySchema,
   keychainStatusSchema,
   migrationPatternSchema,
@@ -30,6 +40,8 @@ import {
   type DiagnosticKind,
   type DiscoveryEvent,
   type DiscoveryMode,
+  type DeviceFlowEvent,
+  type GithubBrowseParams,
   type ListParams,
   type ProcessEvent,
   type ScanEvent,
@@ -162,7 +174,55 @@ export const native = {
     call("get_repository_intelligence", repositoryIntelligenceSchema, { repositoryId }),
   listRepositoryScans: (repositoryId: string, params: ListParams) =>
     call("list_repository_scans", pageSchema(repositoryScanSchema), { repositoryId, params }),
+
+  githubStatus: () => call("github_status", githubStatusSchema),
+  githubStartDeviceFlow: () => call("github_start_device_flow", deviceFlowStartSchema),
+  githubCancelDeviceFlow: (flowId: string) =>
+    call(
+      "github_cancel_device_flow",
+      z.object({ discoveryId: z.string(), outcome: z.enum(["requested", "not_running"]) }),
+      {
+        flowId,
+      },
+    ),
+  githubConnectPat: (token: string) => call("github_connect_pat", githubAccountSchema, { token }),
+  githubRefresh: () => call("github_refresh", githubAccountSchema),
+  githubDisconnect: () => call("github_disconnect", githubAccountSchema.nullable(), { confirm: true }),
+  githubListOrganizations: () => call("github_list_organizations", z.array(githubOrganizationSchema)),
+  githubBrowse: (params: GithubBrowseParams, requestId?: string) =>
+    call("github_browse_repositories", githubBrowsePageSchema, { params, requestId: requestId ?? null }),
+  githubRepositoryDetails: (owner: string, name: string) =>
+    call("github_repository_details", githubRepositoryDetailsSchema, { owner, name, requestId: null }),
+  githubListPullRequests: (owner: string, name: string, requestId?: string) =>
+    call("github_list_pull_requests", z.array(githubPullRequestSchema), { owner, name, requestId: requestId ?? null }),
+  githubGetPullRequest: (owner: string, name: string, number: number) =>
+    call("github_get_pull_request", githubPullRequestSchema, { owner, name, number }),
+  githubRateLimit: () => call("github_rate_limit", z.record(z.string(), z.unknown())),
+  githubImportRepository: (githubRepositoryId: string) =>
+    call("github_import_repository", githubImportResultSchema, { githubRepositoryId }),
+  githubCancelRequest: (requestId: string) =>
+    call(
+      "github_cancel_request",
+      z.object({ discoveryId: z.string(), outcome: z.enum(["requested", "not_running"]) }),
+      {
+        requestId,
+      },
+    ),
+  githubRepositoryFor: (repositoryId: string) =>
+    call("github_repository_for", githubRepositorySchema.nullable(), { repositoryId }),
 };
+
+export const GITHUB_AUTH_EVENT = "shiftops://github-auth";
+
+/** Subscribe to validated GitHub device-flow events. Returns an unsubscribe function. */
+export async function onGithubAuthEvent(handler: (event: DeviceFlowEvent) => void): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  return listen<unknown>(GITHUB_AUTH_EVENT, ({ payload }) => {
+    const parsed = deviceFlowEventSchema.safeParse(payload);
+    if (parsed.success) handler(parsed.data);
+    else console.error("Dropped malformed GitHub auth event", z.prettifyError(parsed.error));
+  });
+}
 
 export const SCAN_EVENT = "shiftops://scan";
 

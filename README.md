@@ -44,7 +44,7 @@ ShiftOps is built in six tasks. This table records what exists today.
 | ------------------------------------------------------------------- | ------------------------------------------------------ |
 | 1. Desktop foundation, environment checks, website                  | Complete                                               |
 | 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                                               |
-| 3. Product profile, local repository intelligence, GitHub           | In progress: profile, discovery and scanner done       |
+| 3. Product profile, local repository intelligence, GitHub           | In progress: profile, discovery, scanner, GitHub done  |
 | 4. Campaign planning, dependency intelligence, Devin integration    | Not started. **Devin integration does not exist yet.** |
 | 5. Migration execution, independent verification, Devin repair loop | Not started                                            |
 | 6. End-to-end workflow, packaging, security audit, submission       | Not started                                            |
@@ -103,6 +103,21 @@ To check what the scanner would report for any checkout, without the UI or the d
 ```sh
 SHIFTOPS_SCAN_PATH=/path/to/repo cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml scan_rehearsal -- --ignored --nocapture
 ```
+
+## Connecting GitHub
+
+ShiftOps talks to GitHub from its Rust core. Tokens are stored only in the OS keychain and are never shown again.
+
+**Device sign-in (recommended):**
+
+1. Create a GitHub OAuth app (GitHub → Settings → Developer settings → OAuth Apps) and enable **Device Flow**. No client secret is needed.
+2. Copy `apps/desktop/.env.example` to `apps/desktop/.env` and set `VITE_GITHUB_OAUTH_CLIENT_ID`. For GitHub Enterprise, also set `VITE_GITHUB_HOST` and `VITE_GITHUB_API_BASE_URL`.
+3. Restart `pnpm dev:desktop`.
+4. Open Integrations → GitHub → **Sign in with GitHub**, then enter the code on GitHub.
+
+**Fine-grained personal access token (fallback):** grant access to the repositories you need, with Metadata, Contents, Pull requests and Checks set to read-only, plus organisation Members (read) to list organisations. Paste it in Integrations → GitHub. ShiftOps validates it before storing it.
+
+Then use **Repositories → Browse GitHub** to import repositories as metadata. Discovering a local checkout of an imported repository links it automatically.
 
 ## Commands
 

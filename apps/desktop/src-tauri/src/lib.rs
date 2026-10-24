@@ -5,6 +5,7 @@ mod discovery;
 mod environment;
 mod error;
 mod git;
+mod github;
 mod logging;
 mod paths;
 mod process;
@@ -37,6 +38,10 @@ pub struct AppState {
     pub diagnostic_program: (PathBuf, Vec<String>),
     pub discoveries: discovery::Discoveries,
     pub scans: scanner::Scans,
+    /// GitHub endpoints, or the configuration error to report.
+    pub github_config: Result<github::client::GithubConfig, error::AppError>,
+    pub github_flows: github::DeviceFlows,
+    pub github_requests: github::Requests,
 }
 
 impl AppState {
@@ -113,6 +118,9 @@ impl AppState {
             diagnostic_program,
             discoveries: discovery::Discoveries::default(),
             scans: scanner::Scans::default(),
+            github_config: github::client::GithubConfig::from_env(),
+            github_flows: github::DeviceFlows::default(),
+            github_requests: github::Requests::default(),
         })
     }
 }
@@ -155,6 +163,22 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::cancel_repository_scan,
         commands::get_repository_intelligence,
         commands::list_repository_scans,
+        commands::github_status,
+        commands::github_start_device_flow,
+        commands::github_cancel_device_flow,
+        commands::github_connect_pat,
+        commands::github_refresh,
+        commands::github_disconnect,
+        commands::github_list_organizations,
+        commands::github_browse_repositories,
+        commands::github_repository_details,
+        commands::github_list_pull_requests,
+        commands::github_get_pull_request,
+        commands::github_get_file,
+        commands::github_rate_limit,
+        commands::github_import_repository,
+        commands::github_cancel_request,
+        commands::github_repository_for,
     ])
 }
 
@@ -370,31 +394,31 @@ mod ipc_tests {
         let stored = invoke(
             &h,
             "store_credential",
-            json!({ "provider": "github", "kind": "github_personal_access_token", "secret": SECRET }),
+            json!({ "provider": "devin", "kind": "devin_api_token", "secret": SECRET }),
         )
         .unwrap();
         assert_eq!(stored["exists"], true);
-        assert_eq!(stored["identifier"], "github:github_personal_access_token");
+        assert_eq!(stored["identifier"], "devin:devin_api_token");
         let listed = invoke(&h, "list_credentials", json!({})).unwrap();
         let github = listed
             .as_array()
             .unwrap()
             .iter()
-            .find(|c| c["kind"] == "github_personal_access_token")
+            .find(|c| c["kind"] == "devin_api_token")
             .unwrap();
         assert_eq!(github["exists"], true);
 
         let refused = invoke(
             &h,
             "delete_credential",
-            json!({ "provider": "github", "kind": "github_personal_access_token", "confirm": false }),
+            json!({ "provider": "devin", "kind": "devin_api_token", "confirm": false }),
         )
         .unwrap_err();
         assert_eq!(refused["code"], "VALIDATION_FAILED");
         let deleted = invoke(
             &h,
             "delete_credential",
-            json!({ "provider": "github", "kind": "github_personal_access_token", "confirm": true }),
+            json!({ "provider": "devin", "kind": "devin_api_token", "confirm": true }),
         )
         .unwrap();
         assert_eq!(deleted["exists"], false);
@@ -698,5 +722,38 @@ mod ipc_tests {
         )
         .unwrap();
         assert_eq!(cancel["outcome"], "not_running");
+    }
+
+    #[test]
+    fn github_commands_report_real_state_without_an_account() {
+        let h = harness();
+        let status = invoke(&h, "github_status", json!({})).unwrap();
+        assert!(status["account"].is_null());
+        assert_eq!(status["credentialStored"], false);
+        let browse = invoke(
+            &h,
+            "github_browse_repositories",
+            json!({ "params": {}, "requestId": null }),
+        )
+        .unwrap_err();
+        assert_eq!(browse["code"], "GITHUB_AUTHENTICATION_FAILED");
+        let refused = invoke(&h, "github_disconnect", json!({ "confirm": false })).unwrap_err();
+        assert_eq!(refused["code"], "VALIDATION_FAILED");
+        assert!(invoke(&h, "github_disconnect", json!({ "confirm": true }))
+            .unwrap()
+            .is_null());
+        let missing = invoke(
+            &h,
+            "github_import_repository",
+            json!({ "githubRepositoryId": "nope" }),
+        )
+        .unwrap_err();
+        assert_eq!(missing["code"], "RECORD_NOT_FOUND");
+        let pat = invoke(&h, "github_connect_pat", json!({ "token": "has space" })).unwrap_err();
+        assert_eq!(pat["code"], "VALIDATION_FAILED");
+        assert_eq!(
+            invoke(&h, "github_cancel_request", json!({ "requestId": "x" })).unwrap()["outcome"],
+            "not_running"
+        );
     }
 }

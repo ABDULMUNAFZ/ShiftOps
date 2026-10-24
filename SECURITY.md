@@ -45,6 +45,15 @@ Callers can also register literal secrets, for example a token passed in a child
 - **Bounded runs**: every run has a timeout and an output-size limit. Output past the limit is discarded, and the pipe is drained so the child cannot block.
 - **Cancellation and timeout**: SIGTERM, then SIGKILL, sent to the whole process group (Unix), followed by a final group SIGKILL after exit, so grandchildren do not survive.
 
+### GitHub
+
+- Tokens (OAuth from device flow, or a fine-grained PAT) are stored only in the OS keychain, read only by `github/`, and sent only to the configured API base over https. The web view cannot change that base URL: it is read from the environment or build-time configuration in Rust.
+- The device code never leaves Rust. The UI shows only the user code and GitHub's verification URL, which passes the external-URL validator.
+- A token is validated before it is stored; a rejected token stores nothing. A 401 later marks the account invalid.
+- Device codes, tokens and `Authorization` headers are never logged. Error details contain only status, path and GitHub's message, redacted.
+- Disconnect requires confirmation and deletes the keychain entry.
+- Requested repository files go through the secret-file deny-list (no `.env`, keys or credentials) and redaction, with a 512 KiB limit.
+
 ### Repository discovery and Git
 
 - Imported repositories are untrusted. Discovery never executes repository code, installs dependencies or writes to a repository.

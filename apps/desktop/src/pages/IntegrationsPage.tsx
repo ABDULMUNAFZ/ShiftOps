@@ -1,6 +1,7 @@
 import type { CheckId } from "@shiftops/core";
 import { Badge, Card, CardHeader, Spinner } from "@shiftops/ui";
 import { CredentialSecurity } from "../features/credentials/CredentialSecurity";
+import { GithubConnection } from "../features/github/GithubConnection";
 import { useCredentials, useEnvironment } from "../lib/queries";
 import { DefinitionList, Page } from "./Page";
 
@@ -38,28 +39,10 @@ export function IntegrationsPage() {
   return (
     <Page
       title="Integrations"
-      description="Accounts and tools ShiftOps delegates to. No integration makes network calls in this build."
+      description="Accounts and tools ShiftOps works with. Tokens are stored only in the OS keychain."
     >
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader
-            title="GitHub"
-            description="Repository discovery, branches and pull requests."
-            actions={
-              <CredentialState
-                provider="github"
-                kinds={["github_personal_access_token", "github_oauth_token"]}
-                missing="Not configured"
-              />
-            }
-          />
-          <DefinitionList
-            rows={[
-              { term: "Local git", value: <ToolStatus id="git" missing="Git not detected" /> },
-              { term: "API access", value: "Not implemented in this build; a stored token is not used yet." },
-            ]}
-          />
-        </Card>
+        <GithubConnection />
         <Card>
           <CardHeader
             title="Devin"

@@ -5,7 +5,7 @@ import { Link } from "react-router";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { KeychainStatusLine } from "../features/credentials/CredentialSecurity";
 import { DatabaseHealthCard } from "../features/health/DatabaseHealthCard";
-import { useCampaigns, useCredentials, useEnvironment } from "../lib/queries";
+import { useCampaigns, useCredentials, useEnvironment, useGithubStatus } from "../lib/queries";
 import { Page } from "./Page";
 
 function EnvironmentCard() {
@@ -56,6 +56,8 @@ function EnvironmentCard() {
 
 function CredentialsCard() {
   const credentials = useCredentials();
+  const github = useGithubStatus();
+  const githubAccount = github.data?.account;
   const stored = (provider: "github" | "devin") =>
     credentials.data?.some((c) => c.provider === provider && c.exists) ?? false;
   return (
@@ -76,6 +78,10 @@ function CredentialsCard() {
               <span>{p === "github" ? "GitHub" : "Devin"}</span>
               {credentials.isPending ? (
                 <Spinner className="size-3" />
+              ) : p === "github" && githubAccount ? (
+                <Badge tone={githubAccount.status === "connected" ? "ok" : "danger"}>
+                  {githubAccount.status === "connected" ? `Connected as ${githubAccount.login}` : "Credential rejected"}
+                </Badge>
               ) : stored(p) ? (
                 <Badge tone="ok">Credential stored</Badge>
               ) : (

@@ -8,6 +8,7 @@ pub mod activity;
 pub mod agents;
 pub mod campaigns;
 pub mod credentials;
+pub mod github;
 pub mod intelligence;
 pub mod migrations;
 pub mod patterns;

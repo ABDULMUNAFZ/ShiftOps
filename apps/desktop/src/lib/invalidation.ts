@@ -6,8 +6,19 @@ import { queryKeys } from "./queryKeys";
  * and native events call `invalidateAfter` instead of listing keys locally,
  * so a new side effect (for example a new activity event) is wired in one place.
  */
-export type ChangeKind =
-  "settings" | "onboarding" | "credentials" | "environment" | "process" | "discovery" | "repositories" | "scan";
+export const changeKinds = [
+  "settings",
+  "onboarding",
+  "credentials",
+  "environment",
+  "process",
+  "discovery",
+  "repositories",
+  "scan",
+  "github",
+  "githubImport",
+] as const;
+export type ChangeKind = (typeof changeKinds)[number];
 
 const affected: Record<ChangeKind, readonly QueryKey[]> = {
   settings: [queryKeys.settings],
@@ -24,6 +35,10 @@ const affected: Record<ChangeKind, readonly QueryKey[]> = {
   repositories: [queryKeys.repositories.all, queryKeys.roots, queryKeys.activity.all, queryKeys.health.database],
   // A finished scan writes facts, the scan row and an activity event.
   scan: [queryKeys.repositories.all, queryKeys.activity.all, queryKeys.health.database],
+  // Connecting, refreshing or disconnecting changes account state, the keychain and activity.
+  github: [queryKeys.github.all, queryKeys.credentials, queryKeys.activity.all, queryKeys.health.database],
+  // Importing a GitHub repository creates a ShiftOps repository and links the cached record.
+  githubImport: [queryKeys.github.all, queryKeys.repositories.all, queryKeys.activity.all, queryKeys.health.database],
 };
 
 export function invalidationTargets(kind: ChangeKind): readonly QueryKey[] {

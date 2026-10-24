@@ -132,7 +132,11 @@ function CredentialRow({ credential }: { credential: CredentialMetadata }) {
       ) : null}
 
       {!credential.manageable ? (
-        <p className="mt-2 text-xs text-muted">Created by the sign-in flow, which is not available in this build.</p>
+        <p className="mt-2 text-xs text-muted">
+          {credential.provider === "github"
+            ? "Managed by the GitHub connection above, which validates the token before storing it."
+            : "Created by its sign-in flow."}
+        </p>
       ) : credential.exists ? (
         replacing ? (
           <SecretForm

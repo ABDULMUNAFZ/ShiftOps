@@ -12,6 +12,9 @@ const native = vi.hoisted(() => ({
   cancelRepositoryScan: vi.fn(),
   listActivity: vi.fn(),
   activityEntityTypes: vi.fn(),
+  githubStatus: vi.fn(),
+  githubListPullRequests: vi.fn(),
+  openExternalUrl: vi.fn(),
 }));
 const events = vi.hoisted(() => ({ handler: null as null | ((e: ScanEvent) => void) }));
 vi.mock("../lib/native", () => ({
@@ -147,6 +150,13 @@ beforeEach(() => {
   native.startRepositoryScan.mockResolvedValue({ repositoryId: "r1" });
   native.cancelRepositoryScan.mockResolvedValue({ discoveryId: "r1", outcome: "requested" });
   native.activityEntityTypes.mockResolvedValue([]);
+  native.githubStatus.mockResolvedValue({
+    host: "https://github.com/",
+    apiBaseUrl: "https://api.github.com/",
+    oauthConfigured: false,
+    account: null,
+    credentialStored: false,
+  });
 });
 
 describe("RepositoryDetailPage", () => {
@@ -186,7 +196,8 @@ describe("RepositoryDetailPage", () => {
     expect(within(table).getByText("jest")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Pull Requests" }));
-    expect(screen.getByText("GitHub is not connected")).toBeTruthy();
+    expect(await screen.findByText("GitHub is not connected")).toBeTruthy();
+    expect(native.githubListPullRequests).not.toHaveBeenCalled();
   });
 
   it("retries branch loading after a structured error", async () => {

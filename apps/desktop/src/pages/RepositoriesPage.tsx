@@ -1,10 +1,11 @@
 import type { Repository, RepositoryRoot } from "@shiftops/core";
 import { Badge, Button, Card, CardHeader, EmptyState, Spinner } from "@shiftops/ui";
 import { useMutation } from "@tanstack/react-query";
-import { FolderGit2, FolderOpen, FolderSearch } from "lucide-react";
+import { FolderGit2, FolderOpen, FolderSearch, GitBranch } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { ErrorDisplay } from "../components/ErrorDisplay";
+import { GithubBrowser } from "../features/github/GithubBrowser";
 import { DiscoveryPanel } from "../features/repositories/DiscoveryPanel";
 import { useDiscovery } from "../features/repositories/useDiscovery";
 import { native } from "../lib/native";
@@ -192,7 +193,7 @@ function RepositoryTable() {
         <EmptyState icon={<FolderGit2 />} title={search ? "No matching repositories" : "No repositories yet"}>
           {search
             ? "Try a different search."
-            : "Open a local repository or discover a folder to register repositories. GitHub import arrives with the GitHub integration."}
+            : "Open a local repository, discover a folder, or browse GitHub to register repositories."}
         </EmptyState>
       ) : (
         <div className="overflow-x-auto">
@@ -280,6 +281,7 @@ function RepositoryTable() {
 export function RepositoriesPage() {
   const discovery = useDiscovery();
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
+  const [browsing, setBrowsing] = useState(false);
   const pick = useMutation({
     mutationFn: async (mode: "repository" | "directory") => {
       const path = await native.pickDirectory(
@@ -304,6 +306,9 @@ export function RepositoriesPage() {
       description="Local repositories registered with ShiftOps. Discovery is read-only and never changes files."
       actions={
         <div className="flex gap-2">
+          <Button onClick={() => setBrowsing((b) => !b)}>
+            <GitBranch /> Browse GitHub
+          </Button>
           <Button onClick={() => pick.mutate("repository")} disabled={busy || pick.isPending}>
             <FolderOpen /> Open Local Repository
           </Button>
@@ -325,6 +330,7 @@ export function RepositoriesPage() {
           }}
         />
       ) : null}
+      {browsing ? <GithubBrowser onClose={() => setBrowsing(false)} /> : null}
       <DiscoveryPanel state={discovery.state} onCancel={() => void discovery.cancel()} onClose={discovery.reset} />
       <RootsCard />
       <RepositoryTable />

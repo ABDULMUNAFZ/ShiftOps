@@ -61,6 +61,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "repository_intelligence",
         sql: include_str!("sql/0006_repository_intelligence.sql"),
     },
+    Migration {
+        version: 7,
+        name: "github",
+        sql: include_str!("sql/0007_github.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {
@@ -270,6 +275,10 @@ mod tests {
                 "campaign_repositories",
                 "campaigns",
                 "credential_metadata",
+                "github_accounts",
+                "github_organizations",
+                "github_pull_requests",
+                "github_repositories",
                 "migration_patterns",
                 "repositories",
                 "repository_conflicts",

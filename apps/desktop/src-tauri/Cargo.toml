@@ -30,6 +30,8 @@ url = "2.5"
 zeroize = "1"
 sha2 = "0.11"
 toml = "1.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "query", "native-tls", "http2", "charset"] }
+base64 = "0.23"
 tauri-plugin-opener = "2.7.2"
 tauri-plugin-dialog = "2.8.3"
 
@@ -38,6 +40,7 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+mockito = "1.7"
 tauri = { version = "2.12.5", features = ["test"] }
 
 [profile.release]

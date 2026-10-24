@@ -11,7 +11,7 @@ A **campaign** is one codebase-wide change. It moves through these stages:
 5. **Verify**: ShiftOps re-runs the policy's commands against the agent's branch (`packages/verification`).
 6. **Track**: campaign state is persisted locally and shown per repository.
 
-The persistence for every stage exists (schema version 6). Discovery, planning, delegation and verification logic do not yet exist. See `PROJECT_STATE.md`.
+The persistence for every stage exists (schema version 7). Discovery, planning, delegation and verification logic do not yet exist. See `PROJECT_STATE.md`.
 
 ## Processes and boundaries
 
@@ -170,6 +170,29 @@ Events are emitted on `shiftops://process`. `lib/processStore.ts` keeps the last
 - **Cache**: the key is sha256(scanner version, HEAD commit from read-only `git rev-parse`, sha256 of every relevant file's path and content). Uncommitted edits to relevant files change the key; other files do not. A cache hit returns the stored scan (`repository.scan_reused` activity). Rescan forces a new scan.
 - **Storage**: facts and conflicts reference their scan and cascade with it. The last 3 scans per repository are kept. The scan's `result_json` holds the headline summary shown in lists.
 - **Jobs**: one scan per repository at a time. Progress goes to `shiftops://scan`, cancellation is by repository id, and every outcome (completed, cached, cancelled, failed) is recorded as activity.
+
+## GitHub integration
+
+`github/` is the only code that talks to GitHub. It runs in Rust; the web view never sees a token.
+
+- **Configuration** (`GithubConfig::from_env`):
+  - Variables: `VITE_GITHUB_OAUTH_CLIENT_ID`, `VITE_GITHUB_HOST`, `VITE_GITHUB_API_BASE_URL`. Order of precedence: runtime environment, then `apps/desktop/.env` (forwarded by `build.rs` at build time), then the GitHub.com defaults.
+  - URLs must be https (http only to loopback, for tests) and carry no credentials.
+  - The API base defaults per host: `api.github.com`, `api.<tenant>.ghe.com`, or `<host>/api/v3`.
+- **Client** (`client.rs`):
+  - Sends `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`, `User-Agent: ShiftOps/<version>` and a Bearer token from the keychain.
+  - Responses are deserialised into typed structs; an unexpected shape is an error. `Link` headers drive pagination.
+  - Errors map to: 401 → `GITHUB_AUTHENTICATION_FAILED` (marks the account invalid); 403 or 429 with an exhausted limit or `retry-after` → `GITHUB_RATE_LIMITED` (context: secondary, `resetAt`, `retryAfterSeconds`); other 403 → `GITHUB_PERMISSION_DENIED`; 404 → `RECORD_NOT_FOUND`; 422 → `VALIDATION_FAILED`; 5xx and transport failures → `NETWORK_FAILED`.
+- **Device flow** (`DeviceFlows`):
+  - `POST /login/device/code` with the client ID and `repo read:org`. The UI receives only the user code, verification URL (validated), expiry and interval.
+  - It polls `POST /login/oauth/access_token` at the server interval: `authorization_pending` continues, `slow_down` raises the interval, `expired_token` → expired, `access_denied` → denied, anything else → failed. Cancellation is checked every 50 ms.
+  - On success the token is validated (`/user`, `/user/orgs`), stored in the keychain, and the account recorded.
+  - Events go to `shiftops://github-auth`.
+- **PAT:** validated against the same endpoints before anything is stored.
+- **Accounts:** one connected account. SQLite holds the login, id, auth method, keychain credential kind, scopes (when GitHub reports them; fine-grained tokens do not), validation time and the last rate-limit headers.
+- **Persistence:** browsed repositories and pull requests are stored on every fetch, keyed by stable GitHub ids, so renames update in place. A pull request's mergeability and checks are kept across list refreshes until its head SHA changes.
+- **Import:** `github_import_repository` creates an untrusted, metadata-only `repositories` row with `source_type = 'github'`. `record_local_discovery` turns such a row into a local-linked one when a checkout with the same origin is discovered.
+- **Cancellation:** browse, details and pull-request listing accept a `requestId`, cancelled through `github_cancel_request`.
 
 ## Validation
 

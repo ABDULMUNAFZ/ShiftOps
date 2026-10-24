@@ -160,3 +160,11 @@ export function useRepositoryIntelligence(id: string) {
     queryFn: () => native.getRepositoryIntelligence(id),
   });
 }
+
+export function useGithubStatus() {
+  return useQuery({ queryKey: queryKeys.github.status, queryFn: native.githubStatus });
+}
+
+export function useGithubOrganizations(enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.github.organizations, queryFn: native.githubListOrganizations, enabled });
+}

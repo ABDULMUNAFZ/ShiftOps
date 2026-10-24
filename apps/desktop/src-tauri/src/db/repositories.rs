@@ -158,32 +158,38 @@ pub fn record_local_discovery(
     let mut github = origin.filter(|o| o.is_github());
     let wt = m.working_tree.as_ref();
     let mut warnings = m.warnings.clone();
-    let existing: Option<String> = conn
+    let mut existing: Option<String> = conn
         .query_row(
             "SELECT id FROM repositories WHERE local_path = ?1",
             [&record.local_path],
             |r| r.get(0),
         )
         .optional()?;
-    // One registered repository holds each GitHub identity. Other checkouts
-    // and worktrees of the same GitHub repository keep their remote URL but
-    // are not linked, so the identity stays unique.
+    // One registered repository holds each GitHub identity. A metadata-only
+    // GitHub record (no local path) becomes local-linked by taking this
+    // checkout. Other checkouts and worktrees of an already-linked repository
+    // keep their remote URL but are not linked, so the identity stays unique.
     if let Some(g) = github {
-        let holder: Option<String> = conn
+        let holder: Option<(String, Option<String>, String)> = conn
             .query_row(
-                "SELECT COALESCE(local_path, name) FROM repositories
+                "SELECT id, local_path, name FROM repositories
                  WHERE github_host = ?1 AND github_owner = ?2 AND github_repo = ?3 AND (?4 IS NULL OR id <> ?4)",
                 params![g.host, g.owner, g.repo, existing],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?;
-        if let Some(holder) = holder {
-            warnings.push(format!(
-                "Not linked to GitHub {}/{}: that repository is already linked to {holder}.",
-                g.owner.as_deref().unwrap_or(""),
-                g.repo.as_deref().unwrap_or("")
-            ));
-            github = None;
+        match holder {
+            Some((holder_id, None, _)) if existing.is_none() => existing = Some(holder_id),
+            Some((_, path, name)) => {
+                warnings.push(format!(
+                    "Not linked to GitHub {}/{}: that repository is already linked to {}.",
+                    g.owner.as_deref().unwrap_or(""),
+                    g.repo.as_deref().unwrap_or(""),
+                    path.unwrap_or(name)
+                ));
+                github = None;
+            }
+            None => {}
         }
     }
     let warnings = serde_json::to_string(&warnings)?;
@@ -218,8 +224,8 @@ pub fn record_local_discovery(
                  github_repo = ?7, default_branch = ?8, current_branch = ?9, current_commit = ?10, root_id = ?11,
                  git_kind = ?12, is_detached = ?13, is_dirty = ?14, staged_count = ?15, modified_count = ?16,
                  untracked_count = ?17, last_commit_at = ?18, git_collected_at = ?19, git_warnings_json = ?20,
-                 updated_at = ?21
-             WHERE id = ?1 AND local_path = ?3",
+                 local_path = ?3, updated_at = ?21
+             WHERE id = ?1",
             values,
         )?;
     } else {

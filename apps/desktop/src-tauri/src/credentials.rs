@@ -24,11 +24,13 @@ const MAX_SECRET_BYTES: usize = 8 * 1024;
 
 /// Credential slots the UI may manage. OAuth tokens are written by the
 /// device flow in a later step, so they are reported but not manually stored.
+/// GitHub tokens are written only by the validated GitHub connection flow
+/// (`github::connect_pat`, device flow), so they are not manually storable here.
 pub const SLOTS: &[(Provider, CredentialKind, bool)] = &[
     (
         Provider::Github,
         CredentialKind::GithubPersonalAccessToken,
-        true,
+        false,
     ),
     (Provider::Github, CredentialKind::GithubOauthToken, false),
     (Provider::Devin, CredentialKind::DevinApiToken, true),
@@ -300,6 +302,20 @@ pub fn store_credential(
             "This credential is created by its sign-in flow and cannot be entered manually.",
         ));
     }
+    store_internal(db, store, provider, kind, secret)
+}
+
+/// Store a credential produced by native code (for example the OAuth device
+/// flow). Same validation, keychain write, metadata and activity as
+/// `store_credential`, without the manual-entry restriction.
+pub(crate) fn store_internal(
+    db: &Database,
+    store: &CredentialStore,
+    provider: Provider,
+    kind: CredentialKind,
+    secret: Secret,
+) -> AppResult<CredentialMetadata> {
+    slot(provider, kind)?;
     validate_secret(secret.expose())?;
     store.put(provider, kind, &secret)?;
     drop(secret);
@@ -423,15 +439,15 @@ pub(crate) mod tests {
             return;
         };
         let db = Database::open_in_memory();
-        let p = Provider::Github;
-        let k = CredentialKind::GithubPersonalAccessToken;
+        let p = Provider::Devin;
+        let k = CredentialKind::DevinApiToken;
 
         let before = metadata(&db, &kc.store, p, k).unwrap();
         assert!(!before.exists);
 
         let stored = store_credential(&db, &kc.store, p, k, Secret::new(SECRET.into())).unwrap();
         assert!(stored.exists);
-        assert_eq!(stored.identifier, "github:github_personal_access_token");
+        assert_eq!(stored.identifier, "devin:devin_api_token");
         assert!(stored.created_at.is_some());
         assert!(!serde_json::to_string(&stored).unwrap().contains(SECRET));
         assert_eq!(kc.store.retrieve(p, k).unwrap().expose(), SECRET);
@@ -490,6 +506,18 @@ pub(crate) mod tests {
             Secret::new("x".repeat(40)),
         );
         assert_eq!(oauth.unwrap_err().code, ErrorCode::ValidationFailed);
+        let github_pat = store_credential(
+            &db,
+            &store,
+            Provider::Github,
+            CredentialKind::GithubPersonalAccessToken,
+            Secret::new("x".repeat(40)),
+        );
+        assert_eq!(
+            github_pat.unwrap_err().code,
+            ErrorCode::ValidationFailed,
+            "GitHub tokens go through the validated connection flow"
+        );
         let mismatched = store_credential(
             &db,
             &store,

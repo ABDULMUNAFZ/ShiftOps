@@ -560,3 +560,147 @@ export type ActiveProcess = z.infer<typeof activeProcessSchema>;
 
 export const diagnosticKindSchema = z.enum(["git_version", "node_version", "pnpm_version", "long_running"]);
 export type DiagnosticKind = z.infer<typeof diagnosticKindSchema>;
+
+// ---------------------------------------------------------------- GitHub
+
+export const githubAccountSchema = z.object({
+  id: z.string(),
+  host: z.string(),
+  apiBaseUrl: z.string(),
+  githubUserId: z.number().int(),
+  login: z.string(),
+  name: z.string().nullable(),
+  htmlUrl: z.string().nullable(),
+  authMethod: z.enum(["oauth_device", "personal_access_token"]),
+  credentialKind: z.enum(["github_oauth_token", "github_personal_access_token"]),
+  scopes: z.array(z.string()),
+  scopesReported: z.boolean(),
+  status: z.enum(["connected", "invalid", "disconnected"]),
+  validatedAt: timestamp.nullable(),
+  rateLimit: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type GithubAccount = z.infer<typeof githubAccountSchema>;
+
+export const githubStatusSchema = z.object({
+  host: z.string(),
+  apiBaseUrl: z.string(),
+  oauthConfigured: z.boolean(),
+  account: githubAccountSchema.nullable(),
+  credentialStored: z.boolean(),
+});
+export type GithubStatus = z.infer<typeof githubStatusSchema>;
+
+export const deviceFlowStartSchema = z
+  .object({
+    flowId: z.string(),
+    userCode: z.string(),
+    verificationUri: z.string(),
+    expiresInSeconds: z.number().int().positive(),
+    intervalSeconds: z.number().int().positive(),
+  })
+  .strict();
+export type DeviceFlowStart = z.infer<typeof deviceFlowStartSchema>;
+
+export const deviceFlowEventSchema = z.object({
+  flowId: z.string(),
+  state: z.enum(["pending", "slow_down", "succeeded", "expired", "denied", "cancelled", "failed"]),
+  intervalSeconds: z.number().int().nonnegative(),
+  account: githubAccountSchema.nullable(),
+  error: appErrorSchema.nullable(),
+});
+export type DeviceFlowEvent = z.infer<typeof deviceFlowEventSchema>;
+
+export const githubOrganizationSchema = z.object({
+  id: z.string(),
+  githubId: z.number().int(),
+  login: z.string(),
+  description: z.string().nullable(),
+  syncedAt: timestamp,
+});
+export type GithubOrganization = z.infer<typeof githubOrganizationSchema>;
+
+export const githubRepositorySchema = z.object({
+  id: z.string(),
+  accountId: z.string(),
+  githubId: z.number().int(),
+  owner: z.string(),
+  name: z.string(),
+  fullName: z.string(),
+  private: z.boolean(),
+  archived: z.boolean(),
+  fork: z.boolean(),
+  defaultBranch: z.string().nullable(),
+  htmlUrl: z.string(),
+  cloneUrl: z.string().nullable(),
+  sshUrl: z.string().nullable(),
+  description: z.string().nullable(),
+  primaryLanguage: z.string().nullable(),
+  languages: z.record(z.string(), z.number()).nullable(),
+  pushedAt: z.string().nullable(),
+  remoteUpdatedAt: z.string().nullable(),
+  permissions: z.record(z.string(), z.unknown()).nullable(),
+  repositoryId: z.string().nullable(),
+  syncedAt: timestamp,
+});
+export type GithubRepository = z.infer<typeof githubRepositorySchema>;
+
+export const githubBrowsePageSchema = z.object({
+  items: z.array(githubRepositorySchema),
+  page: z.number().int().positive(),
+  perPage: z.number().int().positive(),
+  hasNextPage: z.boolean(),
+  totalCount: z.number().int().nonnegative().nullable(),
+});
+export type GithubBrowsePage = z.infer<typeof githubBrowsePageSchema>;
+
+export interface GithubBrowseParams {
+  owner?: string | undefined;
+  query?: string | undefined;
+  page?: number | undefined;
+  perPage?: number | undefined;
+  visibility?: "all" | "public" | "private" | undefined;
+  includeArchived?: boolean | undefined;
+}
+
+export const githubPullRequestSchema = z.object({
+  id: z.string(),
+  githubRepositoryId: z.string(),
+  githubId: z.number().int(),
+  number: z.number().int().positive(),
+  title: z.string(),
+  state: z.enum(["open", "closed", "merged"]),
+  draft: z.boolean(),
+  authorLogin: z.string().nullable(),
+  htmlUrl: z.string(),
+  headRef: z.string(),
+  headSha: z.string(),
+  headRepoFullName: z.string().nullable(),
+  baseRef: z.string(),
+  baseSha: z.string().nullable(),
+  mergeable: z.boolean().nullable(),
+  mergeableState: z.string().nullable(),
+  checks: z
+    .object({
+      total: z.number().int(),
+      success: z.number().int(),
+      failure: z.number().int(),
+      pending: z.number().int(),
+      neutral: z.number().int(),
+    })
+    .nullable(),
+  remoteCreatedAt: z.string().nullable(),
+  remoteUpdatedAt: z.string().nullable(),
+  syncedAt: timestamp,
+});
+export type GithubPullRequest = z.infer<typeof githubPullRequestSchema>;
+
+export const githubRepositoryDetailsSchema = z.object({
+  repository: githubRepositorySchema,
+  languages: z.record(z.string(), z.number()),
+  branches: z.array(z.object({ name: z.string(), commit: z.object({ sha: z.string() }), protected: z.boolean() })),
+  branchesTruncated: z.boolean(),
+});
+
+export const githubImportResultSchema = z.object({ repository: repositorySchema, created: z.boolean() });

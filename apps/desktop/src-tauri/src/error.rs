@@ -29,6 +29,13 @@ pub enum ErrorCode {
     OutputLimitExceeded,
     PathNotAllowed,
     ExternalUrlRejected,
+    NetworkFailed,
+    GithubNotConfigured,
+    GithubAuthenticationFailed,
+    GithubPermissionDenied,
+    GithubRateLimited,
+    GithubAuthorizationExpired,
+    GithubAuthorizationDenied,
     InternalError,
 }
 
@@ -50,6 +57,13 @@ impl ErrorCode {
             Self::OutputLimitExceeded => "OUTPUT_LIMIT_EXCEEDED",
             Self::PathNotAllowed => "PATH_NOT_ALLOWED",
             Self::ExternalUrlRejected => "EXTERNAL_URL_REJECTED",
+            Self::NetworkFailed => "NETWORK_FAILED",
+            Self::GithubNotConfigured => "GITHUB_NOT_CONFIGURED",
+            Self::GithubAuthenticationFailed => "GITHUB_AUTHENTICATION_FAILED",
+            Self::GithubPermissionDenied => "GITHUB_PERMISSION_DENIED",
+            Self::GithubRateLimited => "GITHUB_RATE_LIMITED",
+            Self::GithubAuthorizationExpired => "GITHUB_AUTHORIZATION_EXPIRED",
+            Self::GithubAuthorizationDenied => "GITHUB_AUTHORIZATION_DENIED",
             Self::InternalError => "INTERNAL_ERROR",
         }
     }
@@ -79,6 +93,13 @@ impl ErrorCode {
             Self::OutputLimitExceeded => "Increase the output-size limit in Settings if the full output is needed.",
             Self::PathNotAllowed => "Choose a location inside an allowed directory.",
             Self::ExternalUrlRejected => "Only https links (and http to localhost) can be opened.",
+            Self::NetworkFailed => "Check your internet connection or proxy, then try again.",
+            Self::GithubNotConfigured => "Set VITE_GITHUB_OAUTH_CLIENT_ID in apps/desktop/.env and rebuild, or connect with a personal access token.",
+            Self::GithubAuthenticationFailed => "Reconnect GitHub: the stored credential was rejected or has expired.",
+            Self::GithubPermissionDenied => "Grant the token access to this repository or organisation, then try again.",
+            Self::GithubRateLimited => "Wait until the rate limit resets, then try again.",
+            Self::GithubAuthorizationExpired => "The code expired before it was approved. Start the connection again.",
+            Self::GithubAuthorizationDenied => "Authorization was declined on GitHub. Start again if this was a mistake.",
             Self::InternalError => "Restart ShiftOps. If the problem persists, report it with the copied details.",
         })
     }

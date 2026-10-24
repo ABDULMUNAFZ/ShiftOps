@@ -6,11 +6,12 @@ import type {
   RepositoryIntelligence,
 } from "@shiftops/core";
 import { Badge, Button, Card, EmptyState, Spinner, type BadgeTone } from "@shiftops/ui";
-import { ArrowLeft, GitBranch, GitPullRequest, Play, RefreshCw, Square, TriangleAlert } from "lucide-react";
+import { ArrowLeft, GitBranch, Play, RefreshCw, Square, TriangleAlert } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { ErrorDisplay } from "../components/ErrorDisplay";
 import { ActivityListForEntity } from "../features/activity/ActivityCentre";
+import { GithubPullRequests } from "../features/github/GithubBrowser";
 import { useRepositoryScan } from "../features/repositories/useScan";
 import { useRepository, useRepositoryBranches, useRepositoryIntelligence } from "../lib/queries";
 import { DefinitionList } from "./Page";
@@ -348,13 +349,7 @@ function TabPanel({ tab, repo, intel }: { tab: Tab; repo: Repository; intel: Rep
     case "Branches":
       return <BranchesTab repo={repo} />;
     case "Pull Requests":
-      return (
-        <EmptyState icon={<GitPullRequest />} title="GitHub is not connected">
-          {repo.githubOwner
-            ? `Open pull requests for ${repo.githubOwner}/${repo.githubRepo} appear here once a GitHub account is connected.`
-            : "This repository is not linked to a GitHub repository."}
-        </EmptyState>
-      );
+      return <GithubPullRequests repo={repo} />;
     case "Activity":
       return <ActivityListForEntity entityId={repo.id} />;
   }

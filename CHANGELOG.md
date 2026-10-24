@@ -2,6 +2,48 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-24T23:57:06+05:30 — Real GitHub integration (Task 3, milestone 4)
+
+- Changed:
+  - Migration 7 `github`: `github_accounts` (metadata and keychain credential kind only; one connected account), `github_organizations`, `github_repositories` (stable GitHub ids, case-insensitive owner/name, link to the ShiftOps repository) and `github_pull_requests` (head/base refs and SHAs, state, draft, mergeability, check summary, sync times).
+  - Rust `github/`: an HTTP client (reqwest with native TLS) that sends the API version and User-Agent headers, validates every response into typed structs, follows `Link` pagination, and maps 401/403/404/422/429/5xx, primary and secondary rate limits, and network failures to structured errors.
+    - OAuth Device Authorization Flow with no client secret. It handles pending, slow_down, expiry, denial, invalid codes and cancellation; the device code never leaves Rust.
+    - Fine-grained PAT fallback, validated against `GET /user` before storage.
+    - Account refresh, organisations, rate limit and disconnect.
+    - Repository browsing for the user, an organisation or search, with visibility and archived filters, persisted on each fetch.
+    - Repository details (languages, branches), open pull requests with check summaries, one pull request with mergeability, explicitly requested config files (secret names refused, redacted), and cancellable requests.
+  - Configuration comes from `VITE_GITHUB_OAUTH_CLIENT_ID`, `VITE_GITHUB_HOST` and `VITE_GITHUB_API_BASE_URL`, read in Rust (runtime environment, then `apps/desktop/.env` at build time); see `apps/desktop/.env.example`. GitHub Enterprise endpoints are supported.
+  - Seven new error codes: `NETWORK_FAILED`, `GITHUB_NOT_CONFIGURED`, `GITHUB_AUTHENTICATION_FAILED`, `GITHUB_PERMISSION_DENIED`, `GITHUB_RATE_LIMITED`, `GITHUB_AUTHORIZATION_EXPIRED`, `GITHUB_AUTHORIZATION_DENIED`.
+  - Import: a browsed repository can be imported as metadata only (untrusted, no clone). Discovering a local checkout with the same origin turns that record into a local-linked one instead of creating a duplicate.
+  - The generic Credential Security form no longer stores GitHub tokens. They go only through the validated connection. The Task 2 credential tests moved to the Devin slot with the same coverage.
+  - UI:
+    - Integrations has a GitHub connection: Not configured / Connected state, device sign-in with code, countdown, Copy Code, Open GitHub (validated URL) and Cancel; a PAT form with minimum permissions; account metadata, scopes, rate limit, organisations; Refresh, Replace token, and Disconnect with confirmation.
+    - Repositories has Browse GitHub, with owner, visibility and archived filters, search, pagination, cancel, retry and import.
+    - The repository detail Pull Requests tab shows real pull requests when connected.
+  - CI installs `libssl-dev` for native TLS on Linux.
+- Why: Task 3 milestone 4 requires real GitHub OAuth device sign-in and a PAT fallback, with tokens only in the keychain and no fake data.
+- Validation:
+  - `pnpm check` passed: JS 83 tests (desktop 49, including 8 new GitHub UI tests); Rust 154 passed, 2 ignored; Prettier, lint, rustfmt and clippy clean.
+  - 14 Rust GitHub tests against a local mock server (mockito) cover:
+    - PAT connect, with the token present only in the real macOS Keychain under a test service and absent from status and activity;
+    - a rejected PAT storing nothing;
+    - device flow pending, then slow_down with the interval raised to 3, then success with scopes `repo`/`read:org`;
+    - denied, expired, invalid code, cancellation, a missing client ID, and Device Flow disabled;
+    - primary and secondary rate limits with reset and retry-after, permission denied, not found, 502, a malformed body, and an unreachable host;
+    - pagination via `Link`, archived filtering, search qualifiers and owner validation;
+    - metadata import, pull requests with checks, single-PR mergeability;
+    - config-file decoding with redaction, refusal of `.env` and path traversal;
+    - 401 marking the account invalid;
+    - request cancellation.
+  - New DB tests: one active account, renames by stable id, metadata-only import becoming local-linked through discovery, PR mergeability invalidated by a new head SHA, closing missing PRs, organisation replacement. One IPC test covers the GitHub commands without an account.
+  - Not verified against live GitHub: no OAuth client ID is configured in this environment, and no personal token was provided, so device sign-in and the real API were exercised only against the mock server.
+  - Migration 7 was applied to the real database while the dev app was still running from milestone 3: its file watcher rebuilt the app 17 times during development. The applied schema matches the committed SQL (file last changed before it was applied), a `shiftops-v6-…` backup was written, and the extra restarts added 15 `database.opened` and 15 environment-check events. AGENTS.md now requires stopping the dev app before Rust or migration changes.
+- Limitations:
+  - One connected GitHub account at a time.
+  - Pull-request check summaries are fetched for the first 30 open pull requests.
+  - Import mode is metadata-only; the specification for other import modes was not received (the prompt was cut off).
+  - OAuth requests the `repo` scope, which GitHub does not split into read and write; fine-grained tokens can be limited to read-only.
+
 ## 2026-10-24T23:35:48+05:30 — Repository intelligence scanner (Task 3, milestone 3)
 
 - Changed:
