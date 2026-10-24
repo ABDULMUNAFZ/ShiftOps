@@ -2,6 +2,12 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T02:54:47+05:30 — Readiness tolerates a missing origin/main
+
+- Changed: Submission Readiness skips the `origin/main..HEAD` ahead count when `refs/remotes/origin/main` or `HEAD` does not resolve, reports the count as unknown and adds the reason "origin/main is not available locally". Before, `collect` failed with `fatal: ambiguous argument 'refs/remotes/origin/main..HEAD'`.
+- Why: found by the first pull-request CI run (`40133583291`). A pull-request checkout has no `origin/main`, nor does a clone that never fetched `main`. The readiness view must report that as evidence, not error.
+- Validation: new test `missing_origin_main_is_reported_not_an_error` runs against a real repository without an origin. `pnpm check`: 92 JavaScript tests; 187 Rust tests passed, 3 ignored; lint, format and Clippy clean.
+
 ## 2026-10-25T02:45:33+05:30 — Reject option-like Devin prompts
 
 - Changed:

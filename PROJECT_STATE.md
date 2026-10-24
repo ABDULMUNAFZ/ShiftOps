@@ -22,7 +22,7 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 
 1. `cd ~/shiftops && git status && git log --oneline -10`, then confirm it matches §0.
 2. Read `AGENTS.md` (hard rules), this file, and the newest entries of `CHANGELOG.md`.
-3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 92 JS tests and 186 Rust tests passing, 3 ignored.
+3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 92 JS tests and 187 Rust tests passing, 3 ignored.
 4. Tasks 1–4 are complete. Do not start Task 5 without its specification.
 
 Environment on the development Mac:
@@ -178,7 +178,7 @@ Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shifto
 ## 7. Tests and verification (latest)
 
 - **JavaScript:** 92 tests — core 21, github 11, devin 2, verification 4, ui 3, website 1, desktop 58.
-- **Rust:** 186 passed, 3 ignored. The ignored ones are manual rehearsals:
+- **Rust:** 187 passed, 3 ignored. The ignored ones are manual rehearsals:
   - `upgrade_rehearsal` with `SHIFTOPS_UPGRADE_DB`;
   - `scan_rehearsal` with `SHIFTOPS_SCAN_PATH`;
   - `devin::status_rehearsal` (needs the Devin CLI; verified: installed 3000.11.205, authenticated).

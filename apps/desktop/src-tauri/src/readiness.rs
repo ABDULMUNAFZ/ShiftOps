@@ -230,6 +230,26 @@ pub fn compute_status(readiness: &SubmissionReadiness) -> ReadinessStatus {
     }
 }
 
+/// Commits on HEAD that `origin/main` lacks. `None` when either ref is
+/// missing (no commits yet, or `origin/main` was never fetched, as in a
+/// pull-request checkout): the range would not resolve, and that is evidence
+/// to report, not a failure.
+async fn commits_ahead(
+    root: &Path,
+    head_sha: Option<&str>,
+    origin_main_sha: Option<&str>,
+) -> AppResult<Option<u32>> {
+    if head_sha.is_none() || origin_main_sha.is_none() {
+        return Ok(None);
+    }
+    Ok(git(
+        root,
+        &["rev-list", "--count", "refs/remotes/origin/main..HEAD"],
+    )
+    .await?
+    .and_then(|v| v.parse::<u32>().ok()))
+}
+
 pub async fn collect(_db: &Database) -> AppResult<SubmissionReadiness> {
     let root = source_root()?;
     let required_files = REQUIRED
@@ -259,12 +279,8 @@ pub async fn collect(_db: &Database) -> AppResult<SubmissionReadiness> {
     )
     .await?
     .unwrap_or_default();
-    let commits_ahead = git(
-        &root,
-        &["rev-list", "--count", "refs/remotes/origin/main..HEAD"],
-    )
-    .await?
-    .and_then(|v| v.parse::<u32>().ok());
+    let commits_ahead =
+        commits_ahead(&root, head_sha.as_deref(), origin_main_sha.as_deref()).await?;
     let tracked = git(&root, &["ls-files", "-z"]).await?.unwrap_or_default();
     let (secret_findings, tracked_files_scanned) = secret_findings(&root, &tracked);
     let todo_count = std::fs::read_to_string(root.join("SUBMISSION.md"))
@@ -293,7 +309,12 @@ pub async fn collect(_db: &Database) -> AppResult<SubmissionReadiness> {
             .reasons
             .push("The working tree has uncommitted changes.".into());
     }
-    if !readiness.pushed {
+    if readiness.origin_main_sha.is_none() {
+        readiness.reasons.push(
+            "origin/main is not available locally. Fetch it (`git fetch origin main`) to compare."
+                .into(),
+        );
+    } else if !readiness.pushed {
         readiness
             .reasons
             .push("HEAD is not equal to origin/main.".into());
@@ -372,6 +393,27 @@ mod tests {
         assert!(!serde_json::to_string(&findings)
             .unwrap()
             .contains("productionvalue"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn missing_origin_main_is_reported_not_an_error() {
+        let t = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(t.path()).unwrap();
+        crate::workspace::clone::tests::git(&root, &["init", "-q"]);
+        std::fs::write(root.join("README.md"), "x").unwrap();
+        crate::workspace::clone::tests::git(&root, &["add", "README.md"]);
+        crate::workspace::clone::tests::git(&root, &["commit", "-q", "-m", "init"]);
+        let head = git(&root, &["rev-parse", "--verify", "--quiet", "HEAD"])
+            .await
+            .unwrap();
+        assert!(head.is_some());
+        // No origin/main ref exists: the ahead count is unknown, not an error.
+        assert_eq!(
+            commits_ahead(&root, head.as_deref(), None).await.unwrap(),
+            None
+        );
+        assert_eq!(commits_ahead(&root, None, Some("abc")).await.unwrap(), None);
     }
 
     #[tokio::test]
