@@ -31,6 +31,7 @@ const MAX_LINE_BYTES: usize = 16 * 1024;
 /// Output events are batched to keep the UI responsive under heavy output.
 const BATCH_INTERVAL: Duration = Duration::from_millis(50);
 const BATCH_MAX_LINES: usize = 256;
+#[cfg(unix)]
 const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(3);
 

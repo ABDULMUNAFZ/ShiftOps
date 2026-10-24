@@ -414,6 +414,9 @@ mod ipc_tests {
         }
     }
 
+    // The test diagnostic is a `/bin/sh` loop; the runner's Unix process-group
+    // handling is what this exercises.
+    #[cfg(unix)]
     #[test]
     fn diagnostic_can_be_started_and_cancelled_by_run_id() {
         let h = harness();

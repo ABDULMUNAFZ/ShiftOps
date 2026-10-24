@@ -11,9 +11,13 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+#[cfg(unix)]
 use std::time::Duration;
 
+// Used by the Unix login-shell probe; Windows reads the process PATH only.
+#[cfg_attr(not(unix), allow(dead_code))]
 const MARKER_START: &str = "__SHIFTOPS_PATH_START__";
+#[cfg_attr(not(unix), allow(dead_code))]
 const MARKER_END: &str = "__SHIFTOPS_PATH_END__";
 
 #[derive(Debug, Clone)]
@@ -90,6 +94,7 @@ async fn login_shell_path() -> Option<Vec<PathBuf>> {
     None
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 fn extract_marked(text: &str) -> Option<&str> {
     let start = text.rfind(MARKER_START)? + MARKER_START.len();
     let end = start + text[start..].find(MARKER_END)?;
@@ -98,6 +103,7 @@ fn extract_marked(text: &str) -> Option<&str> {
 }
 
 fn well_known_dirs() -> Vec<PathBuf> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut dirs = Vec::new();
     #[cfg(unix)]
     {
