@@ -1,0 +1,8 @@
+{
+  "name": "@fixture/node-service",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@fixture/node-library": "1.0.0"
+  }
+}

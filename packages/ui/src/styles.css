@@ -1,0 +1,80 @@
+/*
+ * ShiftOps design tokens. Shared by the desktop app and the website.
+ * Consumers import this file after `@import "tailwindcss";` and add
+ * `@source` for this package so component classes are generated.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --so-bg: oklch(0.985 0.002 250);
+  --so-surface: oklch(1 0 0);
+  --so-surface-2: oklch(0.965 0.004 250);
+  --so-border: oklch(0.9 0.006 250);
+  --so-fg: oklch(0.2 0.015 255);
+  --so-muted: oklch(0.5 0.015 255);
+  --so-accent: oklch(0.56 0.13 178);
+  --so-accent-fg: oklch(0.99 0 0);
+  --so-accent-soft: oklch(0.94 0.04 178);
+  --so-ok: oklch(0.55 0.14 150);
+  --so-warn: oklch(0.64 0.15 70);
+  --so-danger: oklch(0.56 0.2 27);
+  --so-ring: oklch(0.56 0.13 178 / 0.5);
+  color-scheme: light;
+}
+
+.dark {
+  --so-bg: oklch(0.16 0.01 255);
+  --so-surface: oklch(0.195 0.011 255);
+  --so-surface-2: oklch(0.235 0.012 255);
+  --so-border: oklch(0.3 0.012 255);
+  --so-fg: oklch(0.93 0.006 250);
+  --so-muted: oklch(0.68 0.012 255);
+  --so-accent: oklch(0.76 0.13 178);
+  --so-accent-fg: oklch(0.17 0.02 200);
+  --so-accent-soft: oklch(0.3 0.05 178);
+  --so-ok: oklch(0.74 0.15 150);
+  --so-warn: oklch(0.8 0.14 75);
+  --so-danger: oklch(0.7 0.18 25);
+  --so-ring: oklch(0.76 0.13 178 / 0.5);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--so-bg);
+  --color-surface: var(--so-surface);
+  --color-surface-2: var(--so-surface-2);
+  --color-border: var(--so-border);
+  --color-fg: var(--so-fg);
+  --color-muted: var(--so-muted);
+  --color-accent: var(--so-accent);
+  --color-accent-fg: var(--so-accent-fg);
+  --color-accent-soft: var(--so-accent-soft);
+  --color-ok: var(--so-ok);
+  --color-warn: var(--so-warn);
+  --color-danger: var(--so-danger);
+  --color-ring: var(--so-ring);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--so-bg);
+    color: var(--so-fg);
+  }
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  *,
+  ::before,
+  ::after {
+    border-color: var(--so-border);
+  }
+  :focus-visible {
+    outline: 2px solid var(--so-accent);
+    outline-offset: 2px;
+  }
+}

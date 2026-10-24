@@ -1,0 +1,23 @@
+@import "tailwindcss";
+@import "@shiftops/ui/styles.css";
+
+@source "../../../packages/ui/src";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-size: 13px;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Allow selecting command output, paths and versions. */
+.selectable,
+pre,
+code {
+  user-select: text;
+}

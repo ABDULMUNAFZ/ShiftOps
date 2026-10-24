@@ -1,0 +1,36 @@
+[package]
+name = "shiftops-desktop"
+version = "0.1.0"
+description = "ShiftOps desktop application"
+authors = ["ShiftOps"]
+license = "UNLICENSED"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[lib]
+name = "shiftops_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.5", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.41", features = ["bundled"] }
+tokio = { version = "1", features = ["process", "time", "macros", "rt"] }
+time = { version = "0.3", features = ["formatting"] }
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3"
+tauri = { version = "2.12.5", features = ["test"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
