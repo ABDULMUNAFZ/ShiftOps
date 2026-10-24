@@ -11,6 +11,8 @@
     "dev:desktop": "pnpm --filter @shiftops/desktop tauri dev",
     "dev:web": "pnpm --filter @shiftops/desktop dev",
     "dev:website": "pnpm --filter @shiftops/website dev",
+    "build:website": "pnpm --filter @shiftops/website build",
+    "build:desktop": "pnpm --filter @shiftops/desktop tauri build",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",

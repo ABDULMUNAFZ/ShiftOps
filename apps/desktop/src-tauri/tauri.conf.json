@@ -25,7 +25,21 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "targets": ["app", "dmg", "msi", "nsis", "appimage", "deb"],
+    "publisher": "ShiftOps",
+    "copyright": "Copyright © 2026 ShiftOps contributors",
+    "category": "DeveloperTool",
+    "homepage": "https://onlyhacks.tech",
+    "shortDescription": "Plan, delegate and verify code migrations across repositories.",
+    "longDescription": "ShiftOps plans, coordinates, and verifies code migrations across every repository from one place: discovery, evidence-based planning, approval-gated Devin delegation and independent verification.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "section": "devel"
+      }
+    }
   }
 }

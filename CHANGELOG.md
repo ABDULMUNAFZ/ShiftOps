@@ -2,6 +2,20 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T04:53:25+05:30 — onlyhacks.tech on GitHub Pages and desktop release pipeline
+
+- Changed:
+  - Website: production domain `onlyhacks.tech` (`public/CNAME`, `metadataBase`, Open Graph, `robots.txt`, `sitemap.xml`, `.nojekyll`). It is deployed to GitHub Pages from the `gh-pages` branch at no cost. `.github/workflows/website.yml` republishes on pushes to `main` that touch the website, or on demand, as a new commit on `gh-pages`.
+  - Download page is now "Download for Desktop". It lists installer links only when `DESKTOP_RELEASE` in `apps/website/src/release.ts` records a published release, says the builds are unsigned and what each OS will show, and keeps build-from-source as the fallback.
+  - Desktop release: `.github/workflows/release.yml` builds unsigned installers on version tags with `tauri-apps/tauri-action` (action-v1.0.0, pinned by commit). Targets: macOS Apple Silicon and Intel (`.dmg`, `.app`), Windows x64 (`.msi`, NSIS `.exe`), Linux x64 (`.AppImage`, `.deb`). Assets go to a draft release, published as a pre-release only if every platform built.
+  - Bundle metadata (publisher, category, homepage, descriptions, minimum macOS 11.0), explicit bundle targets, `pnpm build:desktop` and `pnpm build:website` scripts, and `docs/RELEASING.md` (signing requirements, DNS records).
+- Why: a real public home for the project and installable builds, without inventing certificates or charges.
+- Validation:
+  - `pnpm check`: 113 JavaScript tests (website 4); 208 Rust tests passed, 3 ignored; lint, format, Clippy clean. Website build passes.
+  - Local release build on macOS x86_64: frontend and Rust compiled in release mode and `ShiftOps.app` was bundled. It is unsigned (`codesign`: "not signed at all"). The local `.dmg` step failed: Finder AppleScript timed out (`-1712`) because this session has no automation permission. CI macOS runners build the DMG.
+  - Deployed site checked on GitHub Pages with the `onlyhacks.tech` Host header: every route, `robots.txt`, `sitemap.xml` and the CSS assets return 200, and unknown paths return the custom 404. Rendered at mobile width.
+- Limitations: DNS for `onlyhacks.tech` (Namify, orderbox nameservers) has no records, so the domain does not resolve yet and HTTPS cannot be issued until the records in `docs/RELEASING.md` are added. All installers are unsigned.
+
 ## 2026-10-25T04:32:20+05:30 — Premium website, refreshed desktop UI, brand icons and user manual
 
 - Changed:
