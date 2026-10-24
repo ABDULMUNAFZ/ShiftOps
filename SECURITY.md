@@ -39,7 +39,7 @@ Callers can also register literal secrets, for example a token passed in a child
 ### Process execution
 
 - **No shell, no arbitrary commands**: programs are executed directly with argument arrays. The web view cannot supply a program or arguments. `start_diagnostic` accepts one of four fixed kinds.
-- **Category policy**: the application runner allows only `environment_check`; discovery uses a separate runner that allows only `readonly_git`. A dedicated managed-clone runner permits exactly one policy-built initial `git clone` into an approved workspace. Devin runners permit only the vectors listed under Devin delegation. Other mutating Git, dependency install, build, test, lint, Docker and custom commands remain denied.
+- **Category policy**: the application runner allows only `environment_check`; discovery uses a separate runner that allows only `readonly_git`. A dedicated managed-clone runner permits exactly one policy-built initial `git clone` into an approved workspace. Devin runners permit only the vectors listed under Devin delegation. A verification runner permits only the exact (program, arguments) vectors of one approved verification plan, inside one trusted checkout (see Verification). Other mutating Git, Docker and custom commands remain denied, as do install, build, test and lint commands outside an approved plan.
 - **Environment**: cleared, plus an allow-list of inherited variables. `PATH` cannot be overridden.
 - **Working directory**: validated, and must be an existing directory under an allowed root (OS temp or app data).
 - **Bounded runs**: every run has a timeout and an output-size limit. Output past the limit is discarded, and the pipe is drained so the child cannot block.
@@ -81,6 +81,7 @@ Callers can also register literal secrets, for example a token passed in a child
 ### Database
 
 - Migrations are transactional and verified with a foreign-key check before commit. An existing database is copied to `backups/` before an upgrade.
+- A database whose schema version is newer than the running ShiftOps supports is refused with `DATABASE_MIGRATION_FAILED` and left untouched; nothing reads or writes an unknown schema.
 - The schema enforces enums, ranges, uniqueness, foreign keys and self-reference rules, independently of application validation.
 
 ### Devin delegation
@@ -91,11 +92,27 @@ Callers can also register literal secrets, for example a token passed in a child
 - Dispatch requires, in order: explicit confirmation, a recorded approval of the task's stored content hash, no outstanding planning review flag, classification `affected`, repository trust `trusted`, a canonical local checkout, and an installed, authenticated CLI. Every gate is tested over IPC.
 - `--sandbox` runs Devin's exec tool under macOS seatbelt / Linux bwrap, limited to writes inside the workspace. `--permission-mode smart` auto-runs only actions Devin's safety model judges safe. `--respect-workspace-trust false` is required because print mode cannot answer Devin's own trust prompt; ShiftOps' repository trust gate replaces it.
 - Task text contains scan evidence, which the scanner already redacts, and no credentials. Run output goes through the redacted run log like every other process.
-- Devin is told not to push, open pull requests or change remotes. ShiftOps cannot enforce that beyond the sandbox; Task 5 verifies the resulting working tree independently.
+- Devin is told not to push, open pull requests or change remotes. ShiftOps cannot enforce that beyond the sandbox; verification checks the resulting working tree independently.
+- Dispatch claims the task atomically (`pending` to `queued`) before any process starts, and re-checks that the stored instructions still match the approved hash. A database index allows at most one live session per campaign member. Dispatch refuses a checkout with uncommitted changes, so Devin's work never mixes with the user's.
+- Sessions still live when ShiftOps stops are closed on the next launch as `failed`, never `succeeded`, and recorded.
+
+### Verification
+
+- Verification executes the repository's own scripts, so it requires trust `trusted` (checked in Rust, not only in the UI), an explicit confirmation, and the plan hash the user reviewed.
+- The plan is derived only from the checkout's root `package.json` and lockfile (both must be regular files, not links, at most 512 KiB). It contains at most one install, with lifecycle scripts disabled, plus the scripts named `typecheck`, `lint`, `build`, `test` and `check`. Nothing comes from model output or tool output.
+- The plan hash covers the package manager, the lockfile name, every argument vector and every script body. A Devin session that edits a script changes the hash, so the automatic re-run after a repair is refused and a human must review the new plan.
+- `ExecutionPolicy::verification` accepts only those exact vectors, only with `TrustRequirement::TrustedRepository`, and only inside that checkout. Processes get the usual cleared environment plus `CI=1`, `FORCE_COLOR=0` and `NO_COLOR=1`, with a 20-minute timeout and a 2 MiB output limit per step.
+- Check output is redacted before it is stored or shown. Affected files are only paths that exist as regular files inside the checkout.
+- Repair tasks are bounded to 2 per campaign member. They contain at most 80 lines and 6,000 characters of redacted output per check. Code fences inside the output are neutralised, and the task tells Devin that the output is data, not instructions. Repair tasks still need the normal approval and dispatch. A run cut short by a restart is closed as `error`, never `passed`.
 
 ### Agent output
 
-Agent-produced changes are untrusted. A repository will be marked verified only after ShiftOps itself re-runs the policy's commands against the branch. This is not yet implemented; see `PROJECT_STATE.md`.
+Agent-produced changes are untrusted. A campaign member is marked `verified` only after ShiftOps itself has run the approved plan against the checkout and every check passed. A finished Devin session alone never marks anything verified.
+
+### Repository files
+
+- Removing a record and unlinking a checkout never touch files. Deleting files is limited to a checkout ShiftOps cloned. It must have ownership `shiftops_managed` and a succeeded clone record for the exact path, sit at `<approved workspace>/<owner>/<name>`, be a real folder that resolves to itself, have no other registered repository or tracked folder inside it, and have a clean working tree. The user must type the exact path. External checkouts are never deleted.
+- Unlinking, deleting and removing are refused while a scan, verification or Devin session is live for the repository.
 
 ## Supported versions
 

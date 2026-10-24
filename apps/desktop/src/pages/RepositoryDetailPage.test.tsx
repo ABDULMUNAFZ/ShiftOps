@@ -17,6 +17,9 @@ const native = vi.hoisted(() => ({
   openExternalUrl: vi.fn(),
   setRepositoryTrust: vi.fn(),
   removeRepositoryRecord: vi.fn(),
+  updateRepositoryMetadata: vi.fn(),
+  unlinkRepositoryCheckout: vi.fn(),
+  deleteManagedCheckout: vi.fn(),
 }));
 const events = vi.hoisted(() => ({ handler: null as null | ((e: ScanEvent) => void) }));
 vi.mock("../lib/native", () => ({
@@ -59,6 +62,9 @@ const repo: Repository = {
   scanSummary: null,
   ownership: "external",
   githubLinkMethod: "remote_match",
+  displayName: null,
+  notes: null,
+  checkoutAvailable: true,
 };
 
 const scanned: RepositoryIntelligence = {
@@ -245,8 +251,12 @@ describe("RepositoryDetailPage", () => {
     renderPage();
     await screen.findByText("orders-api");
     fireEvent.change(screen.getByLabelText("Repository trust"), { target: { value: "trusted" } });
+    expect(native.setRepositoryTrust).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("alertdialog", { name: "Confirm trust change" });
+    expect(dialog.textContent).toMatch(/may run their own package scripts/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Set trusted" }));
     await waitFor(() => expect(native.setRepositoryTrust).toHaveBeenCalledWith("r1", "trusted"));
-    fireEvent.click(screen.getByRole("button", { name: "Forget…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Forget record…" }));
     expect(native.removeRepositoryRecord).not.toHaveBeenCalled();
     fireEvent.click(
       within(screen.getByRole("alertdialog", { name: "Forget repository" })).getByRole("button", {
@@ -254,5 +264,49 @@ describe("RepositoryDetailPage", () => {
       }),
     );
     await waitFor(() => expect(native.removeRepositoryRecord).toHaveBeenCalledWith("r1"));
+  });
+
+  it("saves metadata and keeps unlink, delete and forget separate", async () => {
+    native.updateRepositoryMetadata.mockResolvedValue({});
+    native.unlinkRepositoryCheckout.mockResolvedValue({});
+    renderPage();
+    await screen.findByText("orders-api");
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Orders" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
+    await waitFor(() => expect(native.updateRepositoryMetadata).toHaveBeenCalledWith("r1", "Orders", null));
+    // An external checkout offers unlink and forget, never file deletion.
+    expect(screen.queryByRole("button", { name: /Delete managed files/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Unlink checkout…" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Unlink checkout" });
+    expect(dialog.textContent).toMatch(/is not\s+touched/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Unlink" }));
+    await waitFor(() => expect(native.unlinkRepositoryCheckout).toHaveBeenCalledWith("r1"));
+  });
+
+  it("deletes a managed clone only after the exact path is typed", async () => {
+    native.getRepository.mockResolvedValue({
+      ...repo,
+      ownership: "shiftops_managed",
+      githubLinkMethod: "managed_clone",
+    });
+    native.deleteManagedCheckout.mockResolvedValue({});
+    renderPage();
+    await screen.findByText("orders-api");
+    fireEvent.click(screen.getByRole("button", { name: "Delete managed files…" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Delete managed files" });
+    const button = within(dialog).getByRole("button", { name: "Delete files" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("Path to delete"), { target: { value: "/work/other" } });
+    expect(button.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText("Path to delete"), { target: { value: repo.localPath } });
+    fireEvent.click(button);
+    await waitFor(() => expect(native.deleteManagedCheckout).toHaveBeenCalledWith("r1", repo.localPath));
+  });
+
+  it("flags a checkout that is missing on disk", async () => {
+    native.getRepository.mockResolvedValue({ ...repo, checkoutAvailable: false });
+    renderPage();
+    expect(await screen.findByText("checkout missing")).toBeTruthy();
+    expect(screen.getByText("missing on disk")).toBeTruthy();
   });
 });

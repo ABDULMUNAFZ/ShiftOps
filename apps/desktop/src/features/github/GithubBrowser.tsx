@@ -27,7 +27,15 @@ function relative(iso: string | null) {
 }
 
 /** Browse repositories the connected GitHub account can access and import them as metadata. */
-export function GithubBrowser({ onClose }: { onClose: () => void }) {
+export type GithubImportIntent = "metadata" | "clone" | "link";
+
+const INTENT_TITLE: Record<GithubImportIntent, string> = {
+  metadata: "GitHub Metadata Only",
+  clone: "Clone into Managed Workspace",
+  link: "Link Existing Clone",
+};
+
+export function GithubBrowser({ onClose, intent }: { onClose: () => void; intent?: GithubImportIntent }) {
   const status = useGithubStatus();
   const connected = Boolean(status.data?.account && status.data.account.status === "connected");
   const orgs = useGithubOrganizations(connected);
@@ -56,8 +64,12 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
   return (
     <Card aria-label="Browse GitHub">
       <CardHeader
-        title="Browse GitHub"
-        description={connected ? `Repositories visible to ${status.data?.account?.login}` : undefined}
+        title={intent ? INTENT_TITLE[intent] : "Browse GitHub"}
+        description={
+          connected
+            ? `${intent ? "Select a repository. " : ""}Repositories visible to ${status.data?.account?.login}`
+            : undefined
+        }
         actions={
           <Button size="sm" onClick={onClose}>
             Close
@@ -70,7 +82,14 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
         </EmptyState>
       ) : (
         <>
-          {selected ? <RepositoryImportPanel repository={selected} onClose={() => setSelected(null)} /> : null}
+          {selected ? (
+            <RepositoryImportPanel
+              key={`${selected.id}:${intent ?? "choose"}`}
+              repository={selected}
+              initialMode={intent === "clone" ? "clone" : intent === "link" ? "link" : "choose"}
+              onClose={() => setSelected(null)}
+            />
+          ) : null}
           <form
             className="flex flex-wrap items-end gap-2 border-b border-border px-4 py-2 text-sm"
             onSubmit={(e) => {
@@ -229,9 +248,17 @@ export function GithubBrowser({ onClose }: { onClose: () => void }) {
 
 type ImportMode = "choose" | "clone" | "link";
 
-function RepositoryImportPanel({ repository, onClose }: { repository: GithubRepository; onClose: () => void }) {
+function RepositoryImportPanel({
+  repository,
+  initialMode,
+  onClose,
+}: {
+  repository: GithubRepository;
+  initialMode: ImportMode;
+  onClose: () => void;
+}) {
   const client = useQueryClient();
-  const [mode, setMode] = useState<ImportMode>("choose");
+  const [mode, setMode] = useState<ImportMode>(initialMode);
   const [cloneEvent, setCloneEvent] = useState<CloneEvent | null>(null);
   const [linkInspection, setLinkInspection] = useState<LinkInspection | null>(null);
 

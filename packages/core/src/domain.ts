@@ -63,7 +63,11 @@ export const repositorySchema = z.object({
   lastScannedAt: timestamp.nullable(),
   scanSummary: z.lazy(() => scanSummarySchema).nullable(),
   ownership: z.enum(["external", "shiftops_managed"]).nullable(),
-  githubLinkMethod: z.enum(["remote_match", "override", "managed_clone"]).nullable(),
+  githubLinkMethod: z.enum(["metadata_only", "discovery", "remote_match", "override", "managed_clone"]).nullable(),
+  displayName: z.string().nullable(),
+  notes: z.string().nullable(),
+  /** Whether the recorded checkout folder exists now; null without a checkout. */
+  checkoutAvailable: z.boolean().nullable(),
 });
 export type Repository = z.infer<typeof repositorySchema>;
 
@@ -378,6 +382,9 @@ export const agentTaskSchema = z.object({
   completedAt: timestamp.nullable(),
   createdAt: timestamp,
   updatedAt: timestamp,
+  taskKind: z.enum(["migration", "repair"]),
+  sourceVerificationRunId: z.string().nullable(),
+  verificationPlanHash: z.string().nullable(),
 });
 export type AgentTask = z.infer<typeof agentTaskSchema>;
 
@@ -392,8 +399,92 @@ export const verificationRunSchema = z.object({
   startedAt: timestamp,
   completedAt: timestamp.nullable(),
   summary: json,
+  planHash: z.string().nullable(),
+  trigger: z.enum(["manual", "after_repair"]),
 });
 export type VerificationRun = z.infer<typeof verificationRunSchema>;
+
+export const verificationCheckStatusSchema = z.enum([
+  "pending",
+  "running",
+  "passed",
+  "failed",
+  "skipped",
+  "error",
+  "cancelled",
+]);
+export type VerificationCheckStatus = z.infer<typeof verificationCheckStatusSchema>;
+export const verificationCheckCategorySchema = z.enum([
+  "install",
+  "build",
+  "test",
+  "lint",
+  "typecheck",
+  "security",
+  "custom",
+]);
+
+export const verificationCheckSchema = z.object({
+  id: z.string(),
+  verificationRunId: z.string(),
+  name: z.string(),
+  category: verificationCheckCategorySchema,
+  command: json.nullable(),
+  status: verificationCheckStatusSchema,
+  exitCode: z.number().int().nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+  redactedOutput: z.string().nullable(),
+  evidence: json.nullable(),
+  suggestedAction: z.string().nullable(),
+  startedAt: timestamp,
+  completedAt: timestamp.nullable(),
+});
+export type VerificationCheck = z.infer<typeof verificationCheckSchema>;
+
+export const verificationPlanStepSchema = z.object({
+  name: z.string(),
+  category: verificationCheckCategorySchema,
+  program: z.string(),
+  args: z.array(z.string()),
+  script: z.string().nullable(),
+});
+export type VerificationPlanStep = z.infer<typeof verificationPlanStepSchema>;
+
+export const verificationPlanSchema = z.object({
+  supported: z.boolean(),
+  packageManager: z.string().nullable(),
+  lockfile: z.string().nullable(),
+  steps: z.array(verificationPlanStepSchema),
+  hash: z.string().nullable(),
+  warnings: z.array(z.string()),
+});
+export type VerificationPlan = z.infer<typeof verificationPlanSchema>;
+
+export const verificationPreviewSchema = z.object({
+  memberId: z.string(),
+  repositoryId: z.string().nullable(),
+  repositoryName: z.string().nullable(),
+  checkout: z.string().nullable(),
+  plan: verificationPlanSchema.nullable(),
+  problems: z.array(z.string()),
+  running: z.boolean(),
+  latestRun: verificationRunSchema.nullable(),
+  repairAttempts: z.number().int().nonnegative(),
+  maxRepairAttempts: z.number().int().nonnegative(),
+});
+export type VerificationPreview = z.infer<typeof verificationPreviewSchema>;
+
+export const verificationEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("step"),
+    verificationRunId: z.string(),
+    memberId: z.string(),
+    name: z.string(),
+    status: verificationCheckStatusSchema,
+  }),
+  z.object({ type: z.literal("completed"), run: verificationRunSchema, memberId: z.string() }),
+]);
+export type VerificationEvent = z.infer<typeof verificationEventSchema>;
 
 export const migrationPatternSchema = z.object({
   id: z.string(),
@@ -802,6 +893,7 @@ export const submissionReadinessSchema = z.object({
     .nullable(),
   finalSha: z.string().nullable(),
   reasons: z.array(z.string()),
+  warnings: z.array(z.string()),
 });
 export type SubmissionReadiness = z.infer<typeof submissionReadinessSchema>;
 

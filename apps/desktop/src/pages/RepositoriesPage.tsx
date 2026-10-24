@@ -5,7 +5,7 @@ import { FolderGit2, FolderOpen, FolderSearch, GitBranch } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { ErrorDisplay } from "../components/ErrorDisplay";
-import { GithubBrowser } from "../features/github/GithubBrowser";
+import { GithubBrowser, type GithubImportIntent } from "../features/github/GithubBrowser";
 import { DiscoveryPanel } from "../features/repositories/DiscoveryPanel";
 import { useDiscovery } from "../features/repositories/useDiscovery";
 import { native } from "../lib/native";
@@ -217,8 +217,13 @@ function RepositoryTable() {
                 <tr key={r.id} className="hover:bg-surface-2">
                   <td className="px-4 py-2">
                     <Link to={`/repositories/${r.id}`} className="font-medium hover:underline">
-                      {r.name}
+                      {r.displayName ?? r.name}
                     </Link>
+                    {r.checkoutAvailable === false ? (
+                      <Badge tone="danger" className="ml-2">
+                        checkout missing
+                      </Badge>
+                    ) : null}
                     <p className="selectable font-mono text-[11px] text-muted">{r.localPath ?? r.remoteUrl}</p>
                   </td>
                   <td className="px-2 py-2 text-xs">
@@ -293,7 +298,7 @@ function RepositoryTable() {
 export function RepositoriesPage() {
   const discovery = useDiscovery();
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
-  const [browsing, setBrowsing] = useState(false);
+  const [browsing, setBrowsing] = useState<GithubImportIntent | null>(null);
   const pick = useMutation({
     mutationFn: async (mode: "repository" | "directory") => {
       const path = await native.pickDirectory(
@@ -317,15 +322,27 @@ export function RepositoriesPage() {
       title="Repositories"
       description="Local repositories registered with ShiftOps. Discovery is read-only and never changes files."
       actions={
-        <div className="flex gap-2">
-          <Button onClick={() => setBrowsing((b) => !b)}>
-            <GitBranch /> Browse GitHub
-          </Button>
+        <div className="flex flex-wrap justify-end gap-2">
           <Button onClick={() => pick.mutate("repository")} disabled={busy || pick.isPending}>
             <FolderOpen /> Open Local Repository
           </Button>
           <Button variant="primary" onClick={() => pick.mutate("directory")} disabled={busy || pick.isPending}>
             <FolderSearch /> Discover Folder
+          </Button>
+          <Button
+            onClick={() => setBrowsing((b) => (b === "metadata" ? null : "metadata"))}
+            aria-pressed={browsing === "metadata"}
+          >
+            <GitBranch /> GitHub Metadata Only
+          </Button>
+          <Button
+            onClick={() => setBrowsing((b) => (b === "clone" ? null : "clone"))}
+            aria-pressed={browsing === "clone"}
+          >
+            <GitBranch /> Clone into Managed Workspace
+          </Button>
+          <Button onClick={() => setBrowsing((b) => (b === "link" ? null : "link"))} aria-pressed={browsing === "link"}>
+            <GitBranch /> Link Existing Clone
           </Button>
         </div>
       }
@@ -342,7 +359,7 @@ export function RepositoriesPage() {
           }}
         />
       ) : null}
-      {browsing ? <GithubBrowser onClose={() => setBrowsing(false)} /> : null}
+      {browsing ? <GithubBrowser key={browsing} intent={browsing} onClose={() => setBrowsing(null)} /> : null}
       <DiscoveryPanel state={discovery.state} onCancel={() => void discovery.cancel()} onClose={discovery.reset} />
       <RootsCard />
       <RepositoryTable />

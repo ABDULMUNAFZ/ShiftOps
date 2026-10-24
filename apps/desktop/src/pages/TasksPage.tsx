@@ -27,6 +27,7 @@ function TaskCard({ task }: { task: AgentTask }) {
   const cancel = useMutation({ mutationFn: () => native.cancelAgentTask(task.id), onSuccess: invalidate });
   const error = approve.error ?? dispatch.error ?? cancel.error;
   const pending = approve.isPending || dispatch.isPending || cancel.isPending;
+  const [confirming, setConfirming] = useState<"approve" | "dispatch" | null>(null);
   return (
     <Card>
       <button
@@ -37,19 +38,44 @@ function TaskCard({ task }: { task: AgentTask }) {
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
         <span className="font-mono text-xs">{task.id.slice(0, 8)}</span>
         <Badge tone={TONE[task.status] ?? "neutral"}>{task.status}</Badge>
+        {task.taskKind === "repair" ? <Badge tone="accent">repair</Badge> : null}
         {task.approvedAt ? <Badge tone="ok">approved</Badge> : <Badge>unapproved</Badge>}
         <span className="ml-auto text-xs text-muted">{task.createdAt.slice(0, 16).replace("T", " ")}</span>
       </button>
       {open ? (
         <div className="border-t border-border p-4">
           <div className="flex flex-wrap items-center gap-2 pb-3">
-            {!task.approvedAt && task.status === "pending" ? (
-              <Button size="sm" onClick={() => void approve.mutate()} disabled={pending}>
+            {confirming ? (
+              <div role="alertdialog" aria-label="Confirm task action" className="flex flex-wrap items-center gap-2">
+                <span className="text-xs">
+                  {confirming === "approve"
+                    ? "Approve exactly these instructions (hash below) for dispatch?"
+                    : "Devin will change files in this repository's checkout and use your Devin account. Dispatch now?"}
+                </span>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={pending}
+                  onClick={() => {
+                    const action = confirming === "approve" ? approve : dispatch;
+                    setConfirming(null);
+                    action.mutate();
+                  }}
+                >
+                  Confirm
+                </Button>
+                <Button size="sm" onClick={() => setConfirming(null)}>
+                  Keep
+                </Button>
+              </div>
+            ) : null}
+            {!confirming && !task.approvedAt && task.status === "pending" ? (
+              <Button size="sm" onClick={() => setConfirming("approve")} disabled={pending}>
                 <ShieldCheck /> Approve
               </Button>
             ) : null}
-            {task.approvedAt && task.status === "pending" ? (
-              <Button size="sm" onClick={() => void dispatch.mutate()} disabled={pending}>
+            {!confirming && task.approvedAt && task.status === "pending" ? (
+              <Button size="sm" onClick={() => setConfirming("dispatch")} disabled={pending}>
                 <Play /> Dispatch to Devin
               </Button>
             ) : null}
@@ -66,6 +92,12 @@ function TaskCard({ task }: { task: AgentTask }) {
             ) : null}
             <span className="text-[11px] text-muted">hash {task.instructionsHash?.slice(0, 12) ?? "—"}</span>
           </div>
+          {task.taskKind === "repair" ? (
+            <p className="pb-2 text-xs text-muted">
+              Drafted from a failed verification. When the session succeeds, ShiftOps re-runs the same approved checks,
+              and only if the plan, including script bodies, is unchanged.
+            </p>
+          ) : null}
           {error ? <ErrorDisplay title="Task action failed" error={error} /> : null}
           <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface-2 p-3 text-xs">
             {task.instructionsMarkdown}

@@ -76,6 +76,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "agent_task_approval",
         sql: include_str!("sql/0009_agent_task_approval.sql"),
     },
+    Migration {
+        version: 10,
+        name: "verification_and_repair",
+        sql: include_str!("sql/0010_verification_and_repair.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {
@@ -133,6 +138,20 @@ pub fn migrate(
     }
 
     let from_version = user_version(conn)?;
+    let known = migrations.last().map_or(0, |m| m.version);
+    if from_version > known {
+        // A newer ShiftOps wrote this file. Its schema is unknown here, so
+        // nothing may read or write it; the file is left untouched.
+        return Err(AppError::new(
+            ErrorCode::DatabaseMigrationFailed,
+            format!(
+                "The database is at schema version {from_version}, newer than this ShiftOps supports ({known})."
+            ),
+        )
+        .with_context("databaseVersion", from_version)
+        .with_context("supportedVersion", known)
+        .with_action("Run the newer ShiftOps version that created this database. Nothing was changed."));
+    }
     let mut report = MigrationReport {
         from_version,
         to_version: from_version,
@@ -464,6 +483,20 @@ mod tests {
                 assert_eq!(n, 1);
             }
         }
+    }
+
+    #[test]
+    fn newer_database_is_refused_and_left_untouched() {
+        let conn = fresh();
+        migrate(&conn, MIGRATIONS, None).unwrap();
+        conn.pragma_update(None, "user_version", latest_version() + 1)
+            .unwrap();
+        let before = tables(&conn);
+        let err = migrate(&conn, MIGRATIONS, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::DatabaseMigrationFailed);
+        assert!(err.message.contains("newer than this ShiftOps supports"));
+        assert_eq!(user_version(&conn).unwrap(), latest_version() + 1);
+        assert_eq!(tables(&conn), before);
     }
 
     #[test]

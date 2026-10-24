@@ -62,7 +62,18 @@ pub struct SubmissionReadiness {
     pub tracked_files_scanned: usize,
     pub validation: Option<ValidationEvidence>,
     pub final_sha: Option<String>,
+    /// Blocking reasons and participant input still needed.
     pub reasons: Vec<String>,
+    /// Non-blocking notes about how complete or fresh the evidence is.
+    pub warnings: Vec<String>,
+}
+
+/// The recorded validation passed for exactly the current HEAD.
+pub fn validation_matches_head(r: &SubmissionReadiness) -> bool {
+    match (&r.validation, &r.head_sha) {
+        (Some(v), Some(head)) => v.passed && &v.commit_sha == head,
+        _ => false,
+    }
 }
 
 pub(crate) fn source_root() -> AppResult<PathBuf> {
@@ -219,6 +230,7 @@ pub fn compute_status(readiness: &SubmissionReadiness) -> ReadinessStatus {
         || !readiness.working_tree_clean
         || !readiness.pushed
         || !readiness.secret_findings.is_empty()
+        || !validation_matches_head(readiness)
     {
         ReadinessStatus::NotReady
     } else if readiness.todo_count > 0 {
@@ -303,6 +315,7 @@ pub async fn collect(_db: &Database) -> AppResult<SubmissionReadiness> {
         validation: validation(&root),
         final_sha: None,
         reasons: Vec::new(),
+        warnings: Vec::new(),
     };
     if !readiness.working_tree_clean {
         readiness
@@ -331,6 +344,31 @@ pub async fn collect(_db: &Database) -> AppResult<SubmissionReadiness> {
             readiness.secret_findings.len()
         ));
     }
+    match (&readiness.validation, &readiness.head_sha) {
+        (None, _) => readiness.reasons.push(
+            "No validation is recorded. Run `pnpm validate:record` on this commit.".into(),
+        ),
+        (Some(v), _) if !v.passed => readiness
+            .reasons
+            .push("The recorded validation failed. Fix it, then run `pnpm validate:record` again.".into()),
+        (Some(v), Some(head)) if &v.commit_sha != head => readiness.reasons.push(format!(
+            "The recorded validation is for commit {}, not HEAD {}. Run `pnpm validate:record` again.",
+            &v.commit_sha[..v.commit_sha.len().min(10)],
+            &head[..head.len().min(10)]
+        )),
+        _ => {}
+    }
+    if readiness.origin_main_sha.is_some() {
+        readiness.warnings.push(
+            "Push state is compared with the last fetched origin/main; run `git fetch` for a fresh comparison."
+                .into(),
+        );
+    }
+    if readiness.tracked_files_scanned >= MAX_TRACKED_FILES {
+        readiness.warnings.push(format!(
+            "The secret scan stopped at {MAX_TRACKED_FILES} tracked files; later files were not checked."
+        ));
+    }
     readiness.status = compute_status(&readiness);
     Ok(readiness)
 }
@@ -353,9 +391,15 @@ mod tests {
             todo_count: 0,
             secret_findings: vec![],
             tracked_files_scanned: 1,
-            validation: None,
+            validation: Some(ValidationEvidence {
+                commit_sha: "abc".into(),
+                recorded_at: "t".into(),
+                passed: true,
+                summary: "pnpm check passed".into(),
+            }),
             final_sha: None,
             reasons: vec![],
+            warnings: vec![],
         }
     }
 
@@ -370,6 +414,38 @@ mod tests {
         assert_eq!(compute_status(&r), ReadinessStatus::NeedsParticipantInput);
         r.todo_count = 0;
         r.working_tree_clean = false;
+        assert_eq!(compute_status(&r), ReadinessStatus::NotReady);
+    }
+
+    #[test]
+    fn readiness_requires_a_passing_validation_of_the_current_head() {
+        let mut r = base();
+        assert_eq!(
+            compute_status(&r),
+            ReadinessStatus::ReadyForFinalVerification
+        );
+        r.validation = None;
+        assert_eq!(
+            compute_status(&r),
+            ReadinessStatus::NotReady,
+            "no checks recorded"
+        );
+        r = base();
+        r.validation.as_mut().unwrap().passed = false;
+        assert_eq!(
+            compute_status(&r),
+            ReadinessStatus::NotReady,
+            "failed checks"
+        );
+        r = base();
+        r.validation.as_mut().unwrap().commit_sha = "old".into();
+        assert_eq!(
+            compute_status(&r),
+            ReadinessStatus::NotReady,
+            "checks for another commit"
+        );
+        r = base();
+        r.head_sha = None;
         assert_eq!(compute_status(&r), ReadinessStatus::NotReady);
     }
 

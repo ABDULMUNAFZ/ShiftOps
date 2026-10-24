@@ -1,4 +1,8 @@
 import {
+  verificationCheckSchema,
+  verificationEventSchema,
+  verificationPreviewSchema,
+  type VerificationEvent,
   activeProcessSchema,
   activityEventSchema,
   agentTaskSchema,
@@ -185,8 +189,19 @@ export const native = {
   listAgentRuns: (taskId: string, params: ListParams) =>
     call("list_agent_runs", pageSchema(agentRunSchema), { taskId, params }),
   listAgentTasks: (query: ListParams) => call("list_agent_tasks", pageSchema(agentTaskSchema), { query }),
-  listVerificationRuns: (query: ListParams) =>
+  listVerificationRuns: (query: ListParams & { campaignRepositoryId?: string }) =>
     call("list_verification_runs", pageSchema(verificationRunSchema), { query }),
+  previewVerification: (memberId: string) => call("preview_verification", verificationPreviewSchema, { memberId }),
+  startVerification: (memberId: string, planHash: string) =>
+    call("start_verification", verificationRunSchema, { memberId, planHash, confirm: true }),
+  cancelVerification: (memberId: string) =>
+    call("cancel_verification", z.object({ discoveryId: z.string(), outcome: z.enum(["requested", "not_running"]) }), {
+      memberId,
+    }),
+  listVerificationChecks: (runId: string) =>
+    call("list_verification_checks", z.array(verificationCheckSchema), { runId }),
+  createRepairTask: (memberId: string, verificationRunId: string) =>
+    call("create_repair_task", agentTaskSchema, { memberId, verificationRunId }),
   listMigrationPatterns: (params: ListParams) =>
     call("list_migration_patterns", pageSchema(migrationPatternSchema), { params }),
 
@@ -223,6 +238,11 @@ export const native = {
   setRepositoryTrust: (id: string, trust: "untrusted" | "trusted" | "blocked") =>
     call("set_repository_trust", repositorySchema, { id, trust, confirm: true }),
   removeRepositoryRecord: (id: string) => call("remove_repository_record", repositorySchema, { id, confirm: true }),
+  updateRepositoryMetadata: (id: string, displayName: string | null, notes: string | null) =>
+    call("update_repository_metadata", repositorySchema, { id, displayName, notes }),
+  unlinkRepositoryCheckout: (id: string) => call("unlink_repository_checkout", repositorySchema, { id, confirm: true }),
+  deleteManagedCheckout: (id: string, confirmedPath: string) =>
+    call("delete_managed_checkout", repositorySchema, { id, confirmedPath }),
 
   githubStatus: () => call("github_status", githubStatusSchema),
   githubStartDeviceFlow: () => call("github_start_device_flow", deviceFlowStartSchema),
@@ -288,6 +308,18 @@ export const native = {
   getSubmissionReadiness: () => call("get_submission_readiness", submissionReadinessSchema),
   openSubmissionFile: (name: string) => call("open_submission_file", nothing, { name }),
 };
+
+export const VERIFICATION_EVENT = "shiftops://verification";
+
+/** Subscribe to validated verification events. Returns an unsubscribe function. */
+export async function onVerificationEvent(handler: (event: VerificationEvent) => void): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  return listen<unknown>(VERIFICATION_EVENT, ({ payload }) => {
+    const parsed = verificationEventSchema.safeParse(payload);
+    if (parsed.success) handler(parsed.data);
+    else console.error("Dropped malformed verification event", z.prettifyError(parsed.error));
+  });
+}
 
 export const CLONE_EVENT = "shiftops://clone";
 

@@ -20,6 +20,7 @@ export const changeKinds = [
   "workspace",
   "campaigns",
   "devin",
+  "verification",
 ] as const;
 export type ChangeKind = (typeof changeKinds)[number];
 
@@ -35,7 +36,13 @@ const affected: Record<ChangeKind, readonly QueryKey[]> = {
   // A finished discovery records an activity event.
   discovery: [queryKeys.activity.all, queryKeys.health.database],
   // Import and root removal change repositories, roots and activity.
-  repositories: [queryKeys.repositories.all, queryKeys.roots, queryKeys.activity.all, queryKeys.health.database],
+  repositories: [
+    queryKeys.repositories.all,
+    queryKeys.roots,
+    queryKeys.verificationRuns.all,
+    queryKeys.activity.all,
+    queryKeys.health.database,
+  ],
   // A finished scan writes facts, the scan row and an activity event.
   scan: [queryKeys.repositories.all, queryKeys.activity.all, queryKeys.health.database],
   // Connecting, refreshing or disconnecting changes account state, the keychain and activity.
@@ -50,7 +57,16 @@ const affected: Record<ChangeKind, readonly QueryKey[]> = {
     queryKeys.health.database,
   ],
   campaigns: [queryKeys.campaigns.all, queryKeys.agentTasks.all, queryKeys.activity.all, queryKeys.health.database],
+  // A verification run changes member and task state, checks and activity.
+  verification: [
+    queryKeys.verificationRuns.all,
+    queryKeys.campaigns.all,
+    queryKeys.agentTasks.all,
+    queryKeys.activity.all,
+    queryKeys.health.database,
+  ],
   devin: [
+    queryKeys.verificationRuns.all,
     queryKeys.devin.status,
     queryKeys.agentTasks.all,
     queryKeys.campaigns.all,

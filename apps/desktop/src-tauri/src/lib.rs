@@ -16,6 +16,7 @@ mod scanner;
 mod shell_path;
 mod time_util;
 mod urls;
+mod verification;
 mod workspace;
 
 use std::path::PathBuf;
@@ -48,6 +49,8 @@ pub struct AppState {
     pub clones: workspace::clone::Clones,
     /// Live Devin dispatch processes: task id -> (runner, run id).
     pub devin_runs: DevinRuns,
+    /// Live verification jobs, keyed by campaign member.
+    pub verifications: verification::Verifications,
     /// GitHub endpoints, or the configuration error to report.
     pub github_config: Result<github::client::GithubConfig, error::AppError>,
     pub github_flows: github::DeviceFlows,
@@ -71,6 +74,28 @@ impl AppState {
         // attempts left running by an interrupted previous session while
         // preserving their partial folders for explicit user review.
         db.write(|c| db::workspace::fail_interrupted(c))?;
+        // The same holds for Devin sessions and verification runs: they are
+        // closed as failed / error, never as succeeded, and recorded.
+        db.write(|c| {
+            let agents = db::agents::recover_interrupted(c)?;
+            let verifications = db::verification::recover_interrupted(c)?;
+            if agents != db::agents::Recovered::default() || verifications > 0 {
+                activity::record(
+                    c,
+                    NewEvent::new(
+                        "app",
+                        "app.interrupted_work_recovered",
+                        Severity::Warning,
+                        format!(
+                            "Closed work interrupted by the previous session: {} Devin sessions, {} verification runs",
+                            agents.agent_runs, verifications
+                        ),
+                    )
+                    .metadata(json!({ "agents": agents, "verificationRuns": verifications })),
+                )?;
+            }
+            Ok(())
+        })?;
 
         db.write(|c| {
             for m in &report.applied {
@@ -135,6 +160,7 @@ impl AppState {
             scans: scanner::Scans::default(),
             clones: workspace::clone::Clones::default(),
             devin_runs: DevinRuns::default(),
+            verifications: verification::Verifications::default(),
             github_config: github::client::GithubConfig::from_env(),
             github_flows: github::DeviceFlows::default(),
             github_requests: github::Requests::default(),
@@ -228,6 +254,14 @@ fn register_commands<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R
         commands::dispatch_agent_task,
         commands::cancel_agent_task,
         commands::list_agent_runs,
+        commands::preview_verification,
+        commands::start_verification,
+        commands::cancel_verification,
+        commands::list_verification_checks,
+        commands::create_repair_task,
+        commands::update_repository_metadata,
+        commands::unlink_repository_checkout,
+        commands::delete_managed_checkout,
     ])
 }
 
@@ -388,7 +422,7 @@ mod ipc_tests {
             "{health}"
         );
 
-        let events = invoke(&h, "list_activity", json!({ "query": { "limit": 10 } })).unwrap();
+        let events = invoke(&h, "list_activity", json!({ "query": { "limit": 50 } })).unwrap();
         let types: Vec<&str> = events["items"]
             .as_array()
             .unwrap()
@@ -908,6 +942,231 @@ mod ipc_tests {
             .unwrap()
             .iter()
             .any(|e| e["eventType"] == "repository.record_removed"));
+    }
+
+    #[test]
+    fn restart_closes_interrupted_devin_and_verification_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let open = || {
+            AppState::open(
+                dir.path().join("data"),
+                dir.path().join("logs"),
+                CredentialStore::new("dev.shiftops.desktop.test.unavailable"),
+                (PathBuf::from("/bin/sh"), vec![]),
+            )
+            .expect("open state")
+        };
+        let (task_id, run_id) = {
+            let state = open();
+            let (_, member_id) = db::agents::tests::member(&state.db);
+            let task = db::agents::tests::task(&state.db, &member_id);
+            let run = state
+                .db
+                .write(|c| {
+                    db::agents::approve_task(c, &task.id)?;
+                    db::agents::claim_for_dispatch(c, &task.id)?;
+                    db::agents::set_task_status(c, &task.id, db::agents::TaskStatus::Running)?;
+                    db::agents::start_run(c, &task.id, "devin", None, Some("p1"))?;
+                    db::verification::create_run(
+                        c,
+                        &db::verification::NewVerificationRun {
+                            campaign_repository_id: member_id.clone(),
+                            agent_task_id: None,
+                            profile: "node:npm".into(),
+                            verified_commit_sha: "abc".into(),
+                            plan_hash: None,
+                            trigger: db::verification::RunTrigger::Manual,
+                        },
+                    )
+                })
+                .unwrap();
+            (task.id, run.id)
+        };
+        // The "crash": the first state is dropped with work still live.
+        let state = open();
+        let task = state
+            .db
+            .read(|c| db::agents::get_task(c, &task_id))
+            .unwrap();
+        assert_eq!(task.status, db::agents::TaskStatus::Failed);
+        let run = state
+            .db
+            .read(|c| db::verification::get_run(c, &run_id))
+            .unwrap();
+        assert_eq!(run.status, db::verification::VerificationStatus::Error);
+        let events = state
+            .db
+            .read(|c| db::activity::list(c, &Default::default()))
+            .unwrap();
+        assert!(events
+            .items
+            .iter()
+            .any(|e| e.event_type == "app.interrupted_work_recovered"));
+    }
+
+    #[test]
+    fn verification_repair_and_repository_management_gates() {
+        let h = harness();
+        let checkout = h.dir.path().join("billing");
+        std::fs::create_dir(&checkout).unwrap();
+        std::fs::write(
+            checkout.join("package.json"),
+            r#"{"scripts":{"test":"vitest run"}}"#,
+        )
+        .unwrap();
+        let checkout = std::fs::canonicalize(&checkout).unwrap();
+        let state = h._app.state::<AppState>();
+        let repository = state
+            .db
+            .write(|c| {
+                db::repositories::create(
+                    c,
+                    &db::repositories::NewRepository {
+                        source_type: db::repositories::SourceType::Local,
+                        name: "billing".into(),
+                        local_path: Some(checkout.display().to_string()),
+                        remote_url: None,
+                        github: None,
+                        default_branch: None,
+                    },
+                )
+            })
+            .unwrap();
+        let rid = repository.id.clone();
+        let campaign = invoke(
+            &h,
+            "create_campaign",
+            json!({
+                "definition": {
+                    "name": "Node 22",
+                    "objective": "Upgrade Node.js 18 to Node.js 22",
+                    "migrationType": "runtime_upgrade",
+                    "sourceCondition": {}, "targetCondition": {}, "constraints": {},
+                    "verificationProfile": "default", "maximumParallelTasks": 1
+                },
+                "repositoryIds": [rid]
+            }),
+        )
+        .unwrap();
+        let members = invoke(
+            &h,
+            "list_campaign_repositories",
+            json!({ "campaignId": campaign["id"], "params": {} }),
+        )
+        .unwrap();
+        let mid = members["items"][0]["id"].as_str().unwrap().to_string();
+
+        // Untrusted: the plan is not even derived, and nothing can start.
+        let preview = invoke(&h, "preview_verification", json!({ "memberId": mid })).unwrap();
+        assert!(
+            preview["problems"][0].as_str().unwrap().contains("trusted"),
+            "{preview}"
+        );
+        assert!(preview["plan"].is_null());
+        let err = invoke(
+            &h,
+            "start_verification",
+            json!({ "memberId": mid, "planHash": "x", "confirm": false }),
+        )
+        .unwrap_err();
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+
+        invoke(
+            &h,
+            "set_repository_trust",
+            json!({ "id": rid, "trust": "trusted", "confirm": true }),
+        )
+        .unwrap();
+        let preview = invoke(&h, "preview_verification", json!({ "memberId": mid })).unwrap();
+        assert_eq!(preview["problems"], json!([]), "{preview}");
+        assert_eq!(preview["plan"]["steps"][0]["name"], "test");
+        assert_eq!(preview["plan"]["steps"][0]["script"], "vitest run");
+        assert_eq!(preview["maxRepairAttempts"], 2);
+        let err = invoke(
+            &h,
+            "start_verification",
+            json!({ "memberId": mid, "planHash": "not-the-plan", "confirm": true }),
+        )
+        .unwrap_err();
+        assert!(
+            err["message"].as_str().unwrap().contains("plan changed"),
+            "{err}"
+        );
+        let err = invoke(
+            &h,
+            "create_repair_task",
+            json!({ "memberId": mid, "verificationRunId": "none" }),
+        )
+        .unwrap_err();
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("not been verified"),
+            "{err}"
+        );
+        assert_eq!(
+            invoke(&h, "list_verification_runs", json!({ "query": {} })).unwrap()["total"],
+            0
+        );
+
+        // Metadata edits survive and are recorded; blank clears.
+        let edited = invoke(
+            &h,
+            "update_repository_metadata",
+            json!({ "id": rid, "displayName": "  Billing API ", "notes": "Owned by payments" }),
+        )
+        .unwrap();
+        assert_eq!(edited["displayName"], "Billing API");
+        assert_eq!(edited["checkoutAvailable"], true);
+        let cleared = invoke(
+            &h,
+            "update_repository_metadata",
+            json!({ "id": rid, "displayName": "", "notes": null }),
+        )
+        .unwrap();
+        assert!(cleared["displayName"].is_null());
+
+        // A local-only record has nothing to unlink to; an external checkout is never deleted.
+        let err = invoke(
+            &h,
+            "unlink_repository_checkout",
+            json!({ "id": rid, "confirm": true }),
+        )
+        .unwrap_err();
+        assert!(err["message"]
+            .as_str()
+            .unwrap()
+            .contains("no GitHub identity"));
+        let err = invoke(
+            &h,
+            "delete_managed_checkout",
+            json!({ "id": rid, "confirmedPath": checkout.display().to_string() }),
+        )
+        .unwrap_err();
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("External checkouts are never deleted"),
+            "{err}"
+        );
+        assert!(checkout.join("package.json").exists());
+
+        // Availability reflects the folder now.
+        std::fs::remove_dir_all(&checkout).unwrap();
+        let gone = invoke(&h, "get_repository", json!({ "id": rid })).unwrap();
+        assert_eq!(gone["checkoutAvailable"], false);
+
+        let events = invoke(&h, "list_activity", json!({ "query": { "limit": 50 } })).unwrap();
+        let types: Vec<&str> = events["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["eventType"].as_str().unwrap())
+            .collect();
+        assert!(types.contains(&"repository.metadata_updated"));
+        assert!(types.contains(&"repository.trust_changed"));
     }
 
     #[test]

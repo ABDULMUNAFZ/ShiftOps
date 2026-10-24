@@ -40,14 +40,14 @@ Devin
 
 ShiftOps is built in six tasks. This table records what exists today.
 
-| Task                                                                | State                                 |
-| ------------------------------------------------------------------- | ------------------------------------- |
-| 1. Desktop foundation, environment checks, website                  | Complete                              |
-| 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                              |
-| 3. Product profile, local repository intelligence, GitHub           | Complete                              |
-| 4. Campaign planning, dependency intelligence, Devin integration    | Complete (local Devin CLI; see below) |
-| 5. Migration execution, independent verification, Devin repair loop | Not started                           |
-| 6. End-to-end workflow, packaging, security audit, submission       | Not started                           |
+| Task                                                                | State                                                                                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 1. Desktop foundation, environment checks, website                  | Complete                                                                                       |
+| 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                                                                                       |
+| 3. Product profile, local repository intelligence, GitHub           | Complete                                                                                       |
+| 4. Campaign planning, dependency intelligence, Devin integration    | Complete (local Devin CLI; see below)                                                          |
+| 5. Migration execution, independent verification, Devin repair loop | Complete (live Devin dispatch not exercised; see below)                                        |
+| 6. End-to-end workflow, packaging, security audit, submission       | In progress: repository-management hardening done; packaging, audit and submission not started |
 
 Details, decisions and test results: [PROJECT_STATE.md](PROJECT_STATE.md). Change history: [CHANGELOG.md](CHANGELOG.md).
 
@@ -135,6 +135,22 @@ Repository detail lets you explicitly change trust or forget only the ShiftOps r
 6. **Agent Runs → Approve**, then **Dispatch to Devin**. Dispatch requires: approval, a cleared review flag, classification `affected`, a trusted repository with a local checkout, and an installed, signed-in Devin CLI. It runs `devin -p <task> --permission-mode smart --sandbox --respect-workspace-trust false` in that checkout. Cancel stops the process group.
 
 Without a signed-in Devin CLI every step up to an approved draft still works; dispatch reports `DEVIN_NOT_CONFIGURED`.
+
+Dispatch also refuses a checkout with uncommitted changes, a member whose verification is running, and a second live session for the same repository.
+
+## Verification and repair
+
+1. **Campaign detail → Verify** on a member shows the verification plan derived from that checkout's own root `package.json` and lockfile: one dependency install with lifecycle scripts disabled (`pnpm install --frozen-lockfile --ignore-scripts`, `yarn install --frozen-lockfile --ignore-scripts` or `npm ci --ignore-scripts`, only when a lockfile exists), then whichever of the `typecheck`, `lint`, `build`, `test` and `check` scripts exist, with each script body shown.
+2. Verification runs the repository's own scripts, so it requires a **trusted** repository and a ticked confirmation. The plan hash covers every command and script body; if anything changed since you reviewed it, nothing runs.
+3. Each check records its real exit code, duration and redacted output. Failures are marked repairable only when they are a failed script (not the install, a timeout or a missing command) whose output names files inside the checkout.
+4. **Draft repair task** creates a bounded Devin task from the latest failed run (at most 2 per repository). It goes through the same Approve and Dispatch steps. When the repair session succeeds, ShiftOps re-runs the same approved plan automatically, but only if its hash is unchanged. A passed run marks the member `verified`; a Devin session alone never does.
+5. This version verifies Node.js repositories only. Other ecosystems report "no verification plan".
+
+## Managing repositories
+
+- The repository detail page edits a display name and notes (discovery never overwrites them), shows whether the checkout folder still exists, and changes trust only after a confirmation that states what the new level allows. Lowering trust cancels live verification and Devin work in that checkout.
+- There are three separate ways to let go of a repository. **Unlink checkout** turns a GitHub-linked record back into metadata-only and leaves the folder alone. **Delete managed files** is offered only for checkouts ShiftOps cloned; it needs the exact path typed and a clean working tree. **Forget record** removes the ShiftOps record only. External checkouts are never deleted.
+- The five import actions are on the Repositories page: Open Local Repository, Discover Folder, GitHub Metadata Only, Clone into Managed Workspace, and Link Existing Clone.
 
 ## Commands
 

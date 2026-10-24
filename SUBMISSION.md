@@ -40,7 +40,7 @@ AI assistance is recorded in [AI_USAGE.md](AI_USAGE.md).
   9. Campaigns → New campaign: pick scanned repositories, set "Upgrade Node.js 18 to Node.js 22" (node, 18 → 22), create.
   10. Campaign detail: Refresh edges, Compute plan (waves, risk and cited reasons), Apply plan & mark ready, then Draft task on a member.
   11. Agent Runs: open the task, read the generated instructions and hash, Approve. Dispatch to Devin runs only for a trusted, review-cleared, affected repository with a signed-in Devin CLI; otherwise it reports why.
-  12. Verification of Devin's result and the repair loop: Pending (Task 5).
+  12. Campaign detail → Verify on a trusted member: review the plan (exact commands and script bodies), confirm, run; read each check's exit code and output. A failed run with repairable failures offers Draft repair task, which then goes through Approve and Dispatch on Agent Runs. A successful repair session re-runs the same approved plan automatically if it is unchanged. Live Devin dispatch was not exercised by the agent.
 - **Checks performed and results:** See the latest entry in [CHANGELOG.md](CHANGELOG.md) and section 6 of [PROJECT_STATE.md](PROJECT_STATE.md).
 - **Known limitations or incomplete features:** See [PROJECT_STATE.md](PROJECT_STATE.md) §9. Devin delegation uses the local Devin CLI; live dispatch was not exercised by the agent.
 - **Libraries, APIs, and public datasets used:** Tauri 2, React 19, Vite 8, TanStack Query, React Hook Form, Zod, cmdk, lucide-react, Tailwind CSS 4, Next.js 16, rusqlite (bundled SQLite), keyring, tokio, regex, url, uuid, tauri-plugin-opener. Exact versions are in `package.json` files and `Cargo.lock`.

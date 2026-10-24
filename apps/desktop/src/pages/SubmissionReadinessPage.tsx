@@ -39,7 +39,14 @@ function checklist(data: SubmissionReadiness) {
 }
 
 export function SubmissionReadinessPage() {
-  const readiness = useQuery({ queryKey: queryKeys.readiness, queryFn: native.getSubmissionReadiness, retry: false });
+  // Readiness describes the checkout on disk, which changes outside the app:
+  // refresh when the window regains focus as well as on demand.
+  const readiness = useQuery({
+    queryKey: queryKeys.readiness,
+    queryFn: native.getSubmissionReadiness,
+    retry: false,
+    refetchOnWindowFocus: true,
+  });
   const [copied, setCopied] = useState(false);
   const data = readiness.data;
   const remote = githubUrl(data?.remoteUrl ?? null);
@@ -161,6 +168,20 @@ export function SubmissionReadinessPage() {
               <ul className="list-disc space-y-1 p-4 pl-8 text-sm">
                 {data.reasons.map((reason) => (
                   <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+
+          {data.warnings.length ? (
+            <Card>
+              <CardHeader
+                title="Notes"
+                description="These do not block readiness but limit how complete the evidence is."
+              />
+              <ul className="list-disc space-y-1 p-4 pl-8 text-sm text-muted">
+                {data.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
                 ))}
               </ul>
             </Card>

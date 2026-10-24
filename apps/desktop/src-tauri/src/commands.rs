@@ -329,12 +329,21 @@ pub fn list_repositories(
     params: ListParams,
     state: State<'_, AppState>,
 ) -> AppResult<Page<Repository>> {
-    state.db.read(|c| repositories::list(c, &params))
+    let mut page = state.db.read(|c| repositories::list(c, &params))?;
+    page.items = page
+        .items
+        .into_iter()
+        .map(Repository::with_availability)
+        .collect();
+    Ok(page)
 }
 
 #[tauri::command]
 pub fn get_repository(id: String, state: State<'_, AppState>) -> AppResult<Repository> {
-    state.db.read(|c| repositories::get(c, &id))
+    state
+        .db
+        .read(|c| repositories::get(c, &id))
+        .map(Repository::with_availability)
 }
 
 #[tauri::command]
@@ -651,6 +660,13 @@ pub fn set_repository_trust(
         ));
     }
     let trust = repositories::TrustStatus::parse(&trust)?;
+    // Lowering trust takes effect immediately: live verification runs and
+    // Devin sessions in this checkout are cancelled, never left running.
+    let cancelled = if trust == repositories::TrustStatus::Trusted {
+        Vec::new()
+    } else {
+        cancel_privileged_work(&state, &id)?
+    };
     state.db.write(|c| {
         let before = repositories::get(c, &id)?;
         let updated = repositories::set_trust(c, &id, trust)?;
@@ -672,10 +688,40 @@ pub fn set_repository_trust(
                 ),
             )
             .entity(id)
-            .metadata(json!({ "from": before.trust_status, "to": trust })),
+            .metadata(json!({ "from": before.trust_status, "to": trust, "cancelled": cancelled })),
         )?;
         Ok(updated)
     })
+}
+
+/// Cancel live verification runs and Devin sessions for every campaign
+/// membership of a repository. Returns what was cancelled.
+fn cancel_privileged_work(state: &AppState, repository_id: &str) -> AppResult<Vec<String>> {
+    let members = state.db.read(|c| {
+        let mut stmt =
+            c.prepare("SELECT id FROM campaign_repositories WHERE repository_id = ?1")?;
+        let rows = stmt.query_map([repository_id], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })?;
+    let mut cancelled = Vec::new();
+    for member in members {
+        if state.verifications.cancel(&member) {
+            cancelled.push(format!("verification:{member}"));
+        }
+        if let Some(task) = state.db.read(|c| agents::task_for_member(c, &member))? {
+            let live = state
+                .devin_runs
+                .lock()
+                .map_err(|_| AppError::internal("Devin run registry is poisoned."))?
+                .get(&task.id)
+                .map(|(r, run)| (r.clone(), run.clone()));
+            if let Some((runner, run_id)) = live {
+                runner.cancel(&run_id);
+                cancelled.push(format!("devin:{}", task.id));
+            }
+        }
+    }
+    Ok(cancelled)
 }
 
 /// Forget a repository record. This command never touches its checkout.
@@ -690,6 +736,7 @@ pub fn remove_repository_record(
             "Removing a repository record requires confirmation.",
         ));
     }
+    refuse_if_busy(&state, &id, "remove the record")?;
     state.db.write(|c| {
         let repository = repositories::get(c, &id)?;
         activity::record(
@@ -1831,13 +1878,32 @@ pub async fn dispatch_agent_task<R: Runtime>(
         .and_then(|p| std::fs::canonicalize(p).ok())
         .filter(|p| p.is_dir())
         .ok_or_else(|| AppError::validation("The repository has no readable local checkout."))?;
+    if state.verifications.is_running(&member.id) {
+        return Err(AppError::validation(
+            "A verification run is live for this repository. Wait for it to finish or cancel it first.",
+        ));
+    }
+    let search = shell_path::search_path().await;
+    ensure_clean_checkout(&checkout, search).await?;
 
-    let status = devin::status().await?;
+    // Claim atomically before anything starts: a concurrent dispatch, an
+    // instruction change after approval or a second live task fails here.
+    state
+        .db
+        .write(|c| agents::claim_for_dispatch(c, &task.id))?;
+    let release = |e: AppError| {
+        if let Err(err) = state.db.write(|c| agents::release_claim(c, &task.id)) {
+            err.log();
+        }
+        e
+    };
+
+    let status = devin::status().await.map_err(release)?;
     if !(status.installed && status.authenticated) {
-        return Err(AppError::new(
+        return Err(release(AppError::new(
             ErrorCode::DevinNotConfigured,
             "Devin CLI is not installed or not authenticated; task stays undispatched.",
-        ));
+        )));
     }
 
     let runner = ProcessRunner::new(
@@ -1845,9 +1911,10 @@ pub async fn dispatch_agent_task<R: Runtime>(
         Some(state.log_dir.clone()),
         Some(state.db.clone()),
     );
-    let spec = devin::dispatch_spec(&task.instructions_markdown, &checkout)?;
-    let search = shell_path::search_path().await;
-    let started = runner.start(spec, search, Arc::new(TauriSink(app.clone())))?;
+    let spec = devin::dispatch_spec(&task.instructions_markdown, &checkout).map_err(release)?;
+    let started = runner
+        .start(spec, search, Arc::new(TauriSink(app.clone())))
+        .map_err(release)?;
     let run_id = started.run_id.clone();
     let task_id = task.id.clone();
 
@@ -1876,8 +1943,21 @@ pub async fn dispatch_agent_task<R: Runtime>(
     let devin_runs = state.devin_runs.clone();
     let member_id = member.id.clone();
     let campaign_id = member.campaign_id.clone();
+    let verifications = state.verifications.clone();
+    let rerun = (task.task_kind == agents::TaskKind::Repair)
+        .then(|| task.verification_plan_hash.clone())
+        .flatten();
+    let verify_ctx = crate::verification::VerifyContext {
+        db: state.db.clone(),
+        search,
+        log_dir: Some(state.log_dir.clone()),
+        sink: Arc::new(crate::verification::TauriVerificationSink(app.clone())),
+        process_sink: Arc::new(TauriSink(app.clone())),
+    };
     tokio::spawn(async move {
         let outcome = started.handle.await;
+        let session_succeeded =
+            matches!(&outcome, Ok(r) if r.status == crate::process::RunStatus::Succeeded);
         let (task_status, run_status, member_status, note) = match outcome {
             Ok(ref r) => match r.status {
                 crate::process::RunStatus::Succeeded => (
@@ -1938,6 +2018,35 @@ pub async fn dispatch_agent_task<R: Runtime>(
         if let Ok(mut m) = devin_runs.lock() {
             m.remove(&task_id);
         }
+        // A finished repair session is not trusted on its own: re-run the
+        // approved checks, but only if the plan (including script bodies)
+        // is exactly the one the user approved.
+        if let (true, Some(hash)) = (session_succeeded, rerun) {
+            if let Err(e) = verifications
+                .start(
+                    verify_ctx,
+                    &member_id,
+                    &hash,
+                    verification::RunTrigger::AfterRepair,
+                    Some(task_id.clone()),
+                )
+                .await
+            {
+                let _ = db.write(|c| {
+                    activity::record(
+                        c,
+                        NewEvent::new(
+                            "verification",
+                            "verification.rerun_blocked",
+                            Severity::Warning,
+                            format!("Automatic re-verification did not start: {}", e.message),
+                        )
+                        .entity(member_id.clone())
+                        .metadata(json!({ "taskId": task_id, "code": e.code.as_str() })),
+                    )
+                });
+            }
+        }
     });
 
     Ok(updated)
@@ -1967,4 +2076,395 @@ pub fn list_agent_runs(
     state: State<'_, AppState>,
 ) -> AppResult<Page<agents::AgentRun>> {
     state.db.read(|c| agents::list_runs(c, &task_id, &params))
+}
+
+/// Refuse to hand a checkout with uncommitted work to Devin: its changes
+/// would mix with the user's and verification could not tell them apart.
+async fn ensure_clean_checkout(
+    checkout: &std::path::Path,
+    search: &'static crate::shell_path::SearchPath,
+) -> AppResult<()> {
+    let git_dir = match crate::git::inspect::detect_marker(checkout) {
+        Some(Ok((_, dir))) => dir,
+        _ => {
+            return Err(AppError::validation(
+                "The checkout is not a Git repository.",
+            ))
+        }
+    };
+    let runner = ProcessRunner::new(
+        ExecutionPolicy::readonly_git(vec![checkout.to_path_buf()]),
+        None,
+        None,
+    );
+    let git = crate::git::inspect::collect(&runner, search, checkout, &git_dir).await;
+    match git.working_tree {
+        Some(w) if !w.dirty() => Ok(()),
+        Some(w) => Err(AppError::validation(format!(
+            "The checkout has uncommitted changes ({} staged, {} modified, {} untracked). Commit or stash them before delegating.",
+            w.staged, w.modified, w.untracked
+        ))),
+        None => Err(AppError::validation(
+            "The working-tree state could not be read safely, so the checkout is not delegated.",
+        )
+        .with_details(git.warnings.join("\n"))),
+    }
+}
+
+// ---------------------------------------------------------------- verification and repair
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationPreview {
+    member_id: String,
+    repository_id: Option<String>,
+    repository_name: Option<String>,
+    checkout: Option<String>,
+    plan: Option<crate::verification::VerificationPlan>,
+    /// Reasons verification cannot start now. Empty means ready.
+    problems: Vec<String>,
+    running: bool,
+    latest_run: Option<VerificationRun>,
+    repair_attempts: u32,
+    max_repair_attempts: u32,
+}
+
+/// What verification would run, without running anything.
+#[tauri::command]
+pub fn preview_verification(
+    member_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<VerificationPreview> {
+    let (latest_run, repair_attempts) = state.db.read(|c| {
+        campaigns::get_member(c, &member_id)?;
+        Ok((
+            verification::latest_run_for_member(c, &member_id)?,
+            agents::repair_attempts(c, &member_id)?,
+        ))
+    })?;
+    let running = state.verifications.is_running(&member_id);
+    let mut preview = VerificationPreview {
+        member_id: member_id.clone(),
+        repository_id: None,
+        repository_name: None,
+        checkout: None,
+        plan: None,
+        problems: Vec::new(),
+        running,
+        latest_run,
+        repair_attempts,
+        max_repair_attempts: crate::verification::MAX_REPAIR_ATTEMPTS,
+    };
+    match crate::verification::preflight(&state.db, &member_id) {
+        Ok(pre) => {
+            if !pre.plan.supported {
+                preview.problems.extend(pre.plan.warnings.iter().cloned());
+            }
+            preview.repository_id = Some(pre.repository.id);
+            preview.repository_name = Some(pre.repository.name);
+            preview.checkout = Some(pre.checkout.display().to_string());
+            preview.plan = Some(pre.plan);
+        }
+        Err(e) => preview.problems.push(e.message),
+    }
+    if running {
+        preview
+            .problems
+            .push("A verification run is already live.".into());
+    }
+    Ok(preview)
+}
+
+/// Run the plan the user reviewed. `plan_hash` must match the plan derived
+/// now; it covers the exact commands and script bodies.
+#[tauri::command]
+pub async fn start_verification<R: Runtime>(
+    member_id: String,
+    plan_hash: String,
+    confirm: bool,
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> AppResult<VerificationRun> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Running verification executes the repository's scripts and requires confirmation.",
+        ));
+    }
+    let latest_task = state.db.read(|c| agents::task_for_member(c, &member_id))?;
+    let agent_task_id = latest_task
+        .filter(|t| t.status == agents::TaskStatus::AwaitingReview)
+        .map(|t| t.id);
+    let ctx = crate::verification::VerifyContext {
+        db: state.db.clone(),
+        search: shell_path::search_path().await,
+        log_dir: Some(state.log_dir.clone()),
+        sink: Arc::new(crate::verification::TauriVerificationSink(app.clone())),
+        process_sink: Arc::new(TauriSink(app)),
+    };
+    let (run, _handle) = state
+        .verifications
+        .start(
+            ctx,
+            &member_id,
+            &plan_hash,
+            verification::RunTrigger::Manual,
+            agent_task_id,
+        )
+        .await?;
+    Ok(run)
+}
+
+#[tauri::command]
+pub fn cancel_verification(
+    member_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<CancelDiscoveryResponse> {
+    let outcome = if state.verifications.cancel(&member_id) {
+        CancelOutcome::Requested
+    } else {
+        CancelOutcome::NotRunning
+    };
+    Ok(CancelDiscoveryResponse {
+        discovery_id: member_id,
+        outcome,
+    })
+}
+
+#[tauri::command]
+pub fn list_verification_checks(
+    run_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<verification::VerificationCheck>> {
+    state.db.read(|c| {
+        verification::get_run(c, &run_id)?;
+        verification::list_checks(c, &run_id)
+    })
+}
+
+/// Draft a bounded Devin repair task from the member's latest failed run.
+/// It still needs the normal approval and dispatch steps.
+#[tauri::command]
+pub fn create_repair_task(
+    member_id: String,
+    verification_run_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<AgentTask> {
+    let run = state.db.read(|c| {
+        let latest = verification::latest_run_for_member(c, &member_id)?
+            .ok_or_else(|| AppError::validation("This repository has not been verified yet."))?;
+        if latest.id != verification_run_id {
+            return Err(AppError::validation(
+                "Only the latest verification run can be repaired. Refresh and try again.",
+            ));
+        }
+        Ok(latest)
+    })?;
+    if run.status != verification::VerificationStatus::Failed {
+        return Err(AppError::validation(format!(
+            "The latest verification is {}; only a failed run can be repaired.",
+            run.status.as_str()
+        )));
+    }
+    let plan_hash = run.plan_hash.clone().ok_or_else(|| {
+        AppError::validation("The run has no recorded plan, so its checks cannot be re-run.")
+    })?;
+    let failures = crate::verification::repair_failures(&state.db, &run)?;
+    if failures.is_empty() {
+        return Err(AppError::validation(
+            "None of the failures is safely actionable (install, timeout, missing command or no files identified). Fix them by hand.",
+        ));
+    }
+    state.db.write(|c| {
+        let attempts = agents::repair_attempts(c, &member_id)?;
+        let max = crate::verification::MAX_REPAIR_ATTEMPTS;
+        if attempts >= max {
+            return Err(AppError::validation(format!(
+                "This repository already had {attempts} repair attempts (the limit is {max}). Continue by hand."
+            )));
+        }
+        if let Some(open) = agents::task_for_member(c, &member_id)? {
+            if !matches!(
+                open.status,
+                agents::TaskStatus::Completed | agents::TaskStatus::Failed | agents::TaskStatus::Cancelled
+            ) {
+                return Err(AppError::validation(
+                    "An open Devin task already exists for this repository.",
+                ));
+            }
+        }
+        let member = campaigns::get_member(c, &member_id)?;
+        let campaign = campaigns::get(c, &member.campaign_id)?;
+        let repo = repositories::get(c, &member.repository_id)?;
+        let instructions = devin::build_repair_instructions(&devin::RepairContext {
+            campaign_name: &campaign.name,
+            objective: &campaign.objective,
+            repository_name: &repo.name,
+            local_path: repo.local_path.as_deref().unwrap_or("(no checkout)"),
+            verified_commit: &run.verified_commit_sha,
+            attempt: attempts + 1,
+            max_attempts: max,
+            failures: &failures,
+        });
+        devin::validate_prompt(&instructions)?;
+        let task = agents::create_repair_task(
+            c,
+            &agents::NewAgentTask {
+                campaign_repository_id: member.id.clone(),
+                provider: agents::AgentProvider::Devin,
+                execution_mode: agents::ExecutionMode::LocalCli,
+                instructions_markdown: instructions,
+            },
+            &run.id,
+            &plan_hash,
+        )?;
+        campaign_activity(
+            c,
+            "agent.repair_task_created",
+            Severity::Notice,
+            format!(
+                "Drafted repair attempt {} of {max} for {}",
+                attempts + 1,
+                member.repository_name
+            ),
+            member.campaign_id.clone(),
+            json!({
+                "memberId": member.id,
+                "taskId": task.id,
+                "verificationRunId": run.id,
+                "failures": failures.iter().map(|f| &f.name).collect::<Vec<_>>(),
+            }),
+        )?;
+        Ok(task)
+    })
+}
+
+// ---------------------------------------------------------------- repository metadata and checkout removal
+
+/// What is live in a repository's checkout right now, if anything.
+fn repository_busy(state: &AppState, repository_id: &str) -> AppResult<Option<String>> {
+    let members = state.db.read(|c| {
+        let mut stmt =
+            c.prepare("SELECT id FROM campaign_repositories WHERE repository_id = ?1")?;
+        let rows = stmt.query_map([repository_id], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    })?;
+    for member in &members {
+        if state.verifications.is_running(member) {
+            return Ok(Some("a verification run".into()));
+        }
+        if let Some(task) = state.db.read(|c| agents::task_for_member(c, member))? {
+            if matches!(
+                task.status,
+                agents::TaskStatus::Queued | agents::TaskStatus::Running
+            ) {
+                return Ok(Some("a Devin session".into()));
+            }
+        }
+    }
+    let path = state
+        .db
+        .read(|c| repositories::get(c, repository_id))?
+        .local_path;
+    if path.is_some() && state.scans.is_running(repository_id) {
+        return Ok(Some("a scan".into()));
+    }
+    Ok(None)
+}
+
+fn refuse_if_busy(state: &AppState, repository_id: &str, what: &str) -> AppResult<()> {
+    match repository_busy(state, repository_id)? {
+        Some(live) => Err(AppError::validation(format!(
+            "Cannot {what} while {live} is live for this repository. Wait or cancel it first."
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Edit the display name and notes. Discovery never overwrites them.
+#[tauri::command]
+pub fn update_repository_metadata(
+    id: String,
+    display_name: Option<String>,
+    notes: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Repository> {
+    state
+        .db
+        .write(|c| {
+            let before = repositories::get(c, &id)?;
+            let updated =
+                repositories::update_metadata(c, &id, display_name.as_deref(), notes.as_deref())?;
+            activity::record(
+                c,
+                NewEvent::new(
+                    "repository",
+                    "repository.metadata_updated",
+                    Severity::Info,
+                    format!("Updated details of {}", before.name),
+                )
+                .entity(id.clone())
+                .metadata(json!({
+                    "displayNameChanged": before.display_name != updated.display_name,
+                    "notesChanged": before.notes != updated.notes,
+                })),
+            )?;
+            Ok(updated)
+        })
+        .map(Repository::with_availability)
+}
+
+/// Detach the checkout from a GitHub-linked record. Files stay on disk.
+#[tauri::command]
+pub fn unlink_repository_checkout(
+    id: String,
+    confirm: bool,
+    state: State<'_, AppState>,
+) -> AppResult<Repository> {
+    if !confirm {
+        return Err(AppError::validation(
+            "Unlinking a checkout requires confirmation.",
+        ));
+    }
+    refuse_if_busy(&state, &id, "unlink the checkout")?;
+    state.db.write(|c| {
+        let before = repositories::get(c, &id)?;
+        let updated = repositories::unlink_checkout(c, &id)?;
+        activity::record(
+            c,
+            NewEvent::new(
+                "repository",
+                "repository.checkout_unlinked",
+                Severity::Notice,
+                format!(
+                    "Unlinked {} from {} (no files were deleted)",
+                    before.name,
+                    before.local_path.as_deref().unwrap_or("?")
+                ),
+            )
+            .entity(id.clone())
+            .metadata(json!({ "path": before.local_path, "ownership": before.ownership })),
+        )?;
+        Ok(updated)
+    })
+}
+
+/// Delete the folder of a ShiftOps-managed clone. `confirmed_path` must
+/// repeat the checkout path; see `workspace::delete_managed_checkout`.
+#[tauri::command]
+pub async fn delete_managed_checkout(
+    id: String,
+    confirmed_path: String,
+    state: State<'_, AppState>,
+) -> AppResult<Repository> {
+    refuse_if_busy(&state, &id, "delete the managed checkout")?;
+    let repo = state.db.read(|c| repositories::get(c, &id))?;
+    let checkout = repo
+        .local_path
+        .as_deref()
+        .and_then(|p| std::fs::canonicalize(p).ok())
+        .ok_or_else(|| AppError::validation("The checkout folder is not available."))?;
+    let clean = ensure_clean_checkout(&checkout, shell_path::search_path().await)
+        .await
+        .is_ok();
+    crate::workspace::delete_managed_checkout(&state.db, &id, &confirmed_path, clean)
 }

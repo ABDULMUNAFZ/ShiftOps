@@ -431,6 +431,137 @@ pub fn cleanup(db: &Database, clone_id: &str, confirmed_path: &str) -> AppResult
     })
 }
 
+/// Delete the files of a successful ShiftOps-managed clone after explicit
+/// confirmation, then turn the record back into metadata-only.
+///
+/// Only a checkout ShiftOps itself cloned qualifies: ownership
+/// `shiftops_managed`, a succeeded clone record for the exact path, the path
+/// directly at `<approved workspace>/<owner>/<name>`, a real folder (not a
+/// link) that resolves to itself, no other registered repository or tracked
+/// folder inside it, and a clean working tree (`working_tree_clean`, read by
+/// the caller with read-only Git). External checkouts are never deleted.
+pub fn delete_managed_checkout(
+    db: &Database,
+    repository_id: &str,
+    confirmed_path: &str,
+    working_tree_clean: bool,
+) -> AppResult<crate::db::repositories::Repository> {
+    use crate::db::repositories::{self, Ownership};
+    let repo = db.read(|c| repositories::get(c, repository_id))?;
+    if repo.ownership != Some(Ownership::ShiftopsManaged) {
+        return Err(AppError::validation(
+            "Only checkouts ShiftOps cloned into its managed workspace can be deleted. External checkouts are never deleted; unlink or remove the record instead.",
+        ));
+    }
+    let path = repo
+        .local_path
+        .clone()
+        .ok_or_else(|| AppError::validation("This repository has no checkout."))?;
+    if confirmed_path != path {
+        return Err(AppError::validation(
+            "The confirmed path does not match the checkout. Nothing was deleted.",
+        )
+        .with_context("recorded", path.as_str()));
+    }
+    if !working_tree_clean {
+        return Err(AppError::validation(
+            "The checkout has uncommitted changes. Commit and push or discard them yourself first; ShiftOps never deletes unsaved work.",
+        ));
+    }
+    let clone = db
+        .read(|c| store::succeeded_clone_at(c, &path))?
+        .ok_or_else(|| {
+            path_error(
+                "ShiftOps has no record of cloning this folder, so it will not delete it.",
+                Path::new(&path),
+            )
+        })?;
+    let ws = db.read(|c| store::get_workspace(c, &clone.workspace_id))?;
+    let root = resolve_workspace(&ws)?;
+    let dest = PathBuf::from(&path);
+    if !is_direct_destination(&root, &dest) {
+        return Err(path_error(
+            "The checkout is not a clone folder inside its managed workspace.",
+            &dest,
+        ));
+    }
+    let meta = std::fs::symlink_metadata(&dest)
+        .map_err(|e| path_error(format!("The checkout cannot be inspected: {e}"), &dest))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(path_error(
+            "The checkout is now a link or a file; it will not be deleted.",
+            &dest,
+        ));
+    }
+    if std::fs::canonicalize(&dest).ok().as_deref() != Some(dest.as_path()) {
+        return Err(path_error(
+            "The checkout no longer resolves to itself; it will not be deleted.",
+            &dest,
+        ));
+    }
+    if let Some(home) = home_dir() {
+        if home.starts_with(&dest) {
+            return Err(path_error("The home folder is never deleted.", &dest));
+        }
+    }
+    let (registered, roots) = db.read(|c| {
+        Ok((
+            crate::db::repositories::registered_local_paths(c)?,
+            crate::db::roots::list(c)?,
+        ))
+    })?;
+    if let Some(p) = registered
+        .iter()
+        .filter(|p| **p != path)
+        .find(|p| Path::new(p).starts_with(&dest) || dest.starts_with(p))
+    {
+        return Err(path_error(
+            format!(
+                "The registered repository at {p} overlaps this folder; it will not be deleted."
+            ),
+            &dest,
+        ));
+    }
+    if let Some(r) = roots
+        .iter()
+        .find(|r| Path::new(&r.canonical_path).starts_with(&dest))
+    {
+        return Err(path_error(
+            format!(
+                "The tracked folder {} is inside this folder; it will not be deleted.",
+                r.canonical_path
+            ),
+            &dest,
+        ));
+    }
+    std::fs::remove_dir_all(&dest).map_err(|e| {
+        path_error(
+            format!("The folder could not be deleted completely: {e}"),
+            &dest,
+        )
+    })?;
+    if let Some(owner) = dest.parent() {
+        let _ = std::fs::remove_dir(owner);
+    }
+    db.write(|c| {
+        let updated = repositories::unlink_checkout(c, repository_id)?;
+        activity::record(
+            c,
+            NewEvent::new(
+                "repository",
+                "repository.managed_files_deleted",
+                Severity::Warning,
+                format!(
+                    "Deleted the managed clone folder {path}; the record is metadata-only again"
+                ),
+            )
+            .entity(repository_id.to_string())
+            .metadata(json!({ "path": path, "cloneId": clone.id, "workspace": ws.canonical_path })),
+        )?;
+        Ok(updated)
+    })
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
