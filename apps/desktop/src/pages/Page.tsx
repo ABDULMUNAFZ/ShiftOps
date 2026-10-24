@@ -13,14 +13,14 @@ export function Page({
 }) {
   return (
     <div className="flex min-h-full flex-col">
-      <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
-        <div>
-          <h1 className="text-base font-semibold">{title}</h1>
-          <p className="mt-0.5 text-sm text-muted">{description}</p>
+      <div className="flex flex-wrap items-end justify-between gap-4 px-8 pb-2 pt-7">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <p className="mt-1 max-w-3xl text-sm text-muted">{description}</p>
         </div>
         {actions}
       </div>
-      <div className="flex-1 space-y-4 p-6">{children}</div>
+      <div className="flex-1 space-y-5 px-8 py-6">{children}</div>
     </div>
   );
 }

@@ -4,19 +4,19 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "./cn";
 
 export const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-[background-color,color,filter,transform] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        primary: "bg-accent text-accent-fg hover:bg-accent/90",
+        primary: "bg-accent font-semibold text-accent-fg hover:brightness-110",
         secondary: "border border-border bg-surface text-fg hover:bg-surface-2",
         ghost: "text-muted hover:bg-surface-2 hover:text-fg",
         danger: "bg-danger text-white hover:bg-danger/90",
       },
       size: {
-        sm: "h-7 px-2.5 text-xs",
-        md: "h-8 px-3",
-        lg: "h-10 px-4",
+        sm: "h-7 px-3 text-xs",
+        md: "h-8 px-3.5",
+        lg: "h-10 px-5",
         icon: "size-8",
       },
     },
@@ -40,7 +40,12 @@ export function Button({ className, variant, size, asChild = false, type, ...pro
 }
 
 export function Card({ className, ...props }: ComponentProps<"section">) {
-  return <section className={cn("rounded-lg border border-border bg-surface", className)} {...props} />;
+  return (
+    <section
+      className={cn("overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/5", className)}
+      {...props}
+    />
+  );
 }
 
 export function CardHeader({
@@ -55,7 +60,7 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <header className={cn("flex items-start justify-between gap-4 border-b border-border px-4 py-3", className)}>
+    <header className={cn("flex items-start justify-between gap-4 border-b border-border px-5 py-3.5", className)}>
       <div className="min-w-0">
         <h2 className="text-sm font-semibold">{title}</h2>
         {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
@@ -65,7 +70,7 @@ export function CardHeader({
   );
 }
 
-const badgeVariants = cva("inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs font-medium", {
+const badgeVariants = cva("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium", {
   variants: {
     tone: {
       neutral: "bg-surface-2 text-muted",
@@ -132,7 +137,11 @@ export function EmptyState({
 }) {
   return (
     <div className={cn("flex flex-col items-center justify-center px-6 py-14 text-center", className)}>
-      {icon ? <div className="mb-3 text-muted [&_svg]:size-6">{icon}</div> : null}
+      {icon ? (
+        <div className="mb-4 grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent [&_svg]:size-5">
+          {icon}
+        </div>
+      ) : null}
       <h3 className="text-sm font-semibold">{title}</h3>
       {children ? <div className="mt-1 max-w-md text-sm text-muted">{children}</div> : null}
       {action ? <div className="mt-4">{action}</div> : null}
@@ -143,7 +152,7 @@ export function EmptyState({
 export function ErrorState({ title, error, action }: { title: string; error: unknown; action?: ReactNode }) {
   const message = error instanceof Error ? error.message : String(error);
   return (
-    <div role="alert" className="rounded-md border border-danger/40 bg-danger/8 px-4 py-3 text-sm">
+    <div role="alert" className="rounded-xl border border-danger/40 bg-danger/8 px-4 py-3 text-sm">
       <p className="font-medium text-danger">{title}</p>
       <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-fg/80">{message}</pre>
       {action ? <div className="mt-3">{action}</div> : null}

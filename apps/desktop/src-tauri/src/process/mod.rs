@@ -139,6 +139,12 @@ pub struct ExecutionPolicy {
     allowed: HashSet<CommandCategory>,
     /// Directories a working directory may be inside.
     cwd_roots: PathPolicy,
+    /// The working directory is a repository checkout the command layer
+    /// verified as trusted, so `TrustRequirement::TrustedRepository` specs
+    /// may run. Only `devin_dispatch` and `verification` set it.
+    trusted_checkout: bool,
+    /// When set, only these exact (program, arguments) pairs may run.
+    exact: Option<Vec<(String, Vec<String>)>>,
 }
 
 impl ExecutionPolicy {
@@ -150,6 +156,8 @@ impl ExecutionPolicy {
         Self {
             allowed: HashSet::from([CommandCategory::EnvironmentCheck]),
             cwd_roots: PathPolicy::new([std::env::temp_dir(), data_dir]),
+            trusted_checkout: false,
+            exact: None,
         }
     }
 
@@ -160,6 +168,8 @@ impl ExecutionPolicy {
         Self {
             allowed: HashSet::from([CommandCategory::ReadonlyGit]),
             cwd_roots: PathPolicy::new(roots),
+            trusted_checkout: false,
+            exact: None,
         }
     }
 
@@ -171,6 +181,8 @@ impl ExecutionPolicy {
         Self {
             allowed: HashSet::from([CommandCategory::MutatingGit]),
             cwd_roots: PathPolicy::new([root]),
+            trusted_checkout: false,
+            exact: None,
         }
     }
 
@@ -180,6 +192,8 @@ impl ExecutionPolicy {
         Self {
             allowed: HashSet::from([CommandCategory::Devin]),
             cwd_roots: PathPolicy::new(roots),
+            trusted_checkout: false,
+            exact: None,
         }
     }
 
@@ -190,6 +204,27 @@ impl ExecutionPolicy {
         Self {
             allowed: HashSet::from([CommandCategory::Devin]),
             cwd_roots: PathPolicy::new([root]),
+            trusted_checkout: true,
+            exact: None,
+        }
+    }
+
+    /// Verification policy: exactly the (program, arguments) vectors of one
+    /// approved verification plan (package-manager install and named
+    /// scripts, built by `verification::derive_plan`), inside one trusted
+    /// checkout. Arbitrary commands, other programs and other categories are
+    /// refused.
+    pub fn verification(root: PathBuf, vectors: Vec<(String, Vec<String>)>) -> Self {
+        Self {
+            allowed: HashSet::from([
+                CommandCategory::DependencyInstall,
+                CommandCategory::Build,
+                CommandCategory::Test,
+                CommandCategory::Lint,
+            ]),
+            cwd_roots: PathPolicy::new([root]),
+            trusted_checkout: true,
+            exact: Some(vectors),
         }
     }
 
@@ -198,6 +233,8 @@ impl ExecutionPolicy {
         Self {
             allowed: categories.iter().copied().collect(),
             cwd_roots: PathPolicy::new(roots),
+            trusted_checkout: false,
+            exact: None,
         }
     }
 
@@ -213,14 +250,31 @@ impl ExecutionPolicy {
             .with_context("category", spec.category.as_str())
             .with_context("label", spec.label.as_str()));
         }
-        if spec.trust == TrustRequirement::TrustedRepository
-            && spec.category != CommandCategory::Devin
-        {
+        if spec.trust == TrustRequirement::TrustedRepository && !self.trusted_checkout {
             return Err(AppError::new(
                 ErrorCode::CommandNotAllowed,
                 "Commands inside repositories are not enabled until repository trust is implemented.",
             )
             .with_context("category", spec.category.as_str()));
+        }
+        if let Some(exact) = &self.exact {
+            let name = match &spec.program {
+                Program::Named(name) => name.as_str(),
+                Program::Path(_) => "",
+            };
+            if !exact.iter().any(|(p, a)| p == name && a == &spec.args) {
+                return Err(AppError::new(
+                    ErrorCode::CommandNotAllowed,
+                    "Only the commands of the approved verification plan may run.",
+                )
+                .with_context("label", spec.label.as_str()));
+            }
+            if spec.trust != TrustRequirement::TrustedRepository {
+                return Err(AppError::new(
+                    ErrorCode::CommandNotAllowed,
+                    "Verification commands must declare the trusted-repository requirement.",
+                ));
+            }
         }
         if spec.category == CommandCategory::Devin {
             if !matches!(&spec.program, Program::Named(name) if name == "devin") {

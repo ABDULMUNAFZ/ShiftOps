@@ -29,6 +29,7 @@ beforeEach(() => {
     validation: null,
     finalSha: null,
     reasons: ["3 participant TODOs remain."],
+    warnings: ["Push state is compared with the last fetched origin/main; run `git fetch` for a fresh comparison."],
   });
   native.openSubmissionFile.mockResolvedValue(undefined);
   native.openExternalUrl.mockResolvedValue(undefined);
@@ -40,6 +41,7 @@ describe("SubmissionReadinessPage", () => {
     renderWithClient(<SubmissionReadinessPage />);
     expect(await screen.findByText("Needs Participant Input")).toBeTruthy();
     expect(screen.getByText("Unset until Task 6")).toBeTruthy();
+    expect(screen.getByText(/last fetched origin\/main/)).toBeTruthy();
     expect(screen.getByText("Disabled")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Copy checklist/ }));
     await waitFor(() =>

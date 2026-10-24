@@ -4,26 +4,26 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 
 ## 0. Status at a glance
 
-| Task                                                                  | State                                                       | Commits                                                                     |
-| --------------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 1. Foundation (shell, environment checks, website)                    | Complete                                                    | `cca3cf6`                                                                   |
-| 2. Persistence, credentials, safe execution, activity                 | Complete                                                    | `4701627`, Windows CI fixes `5c6ea42`, `824691f`                            |
-| 3. Product profile, local repository intelligence, GitHub integration | **Complete**                                                | `d388ff4`, `0e10fa1`, `43f264b`, `62a1b4b`, `9a9f265`, `e1cd62d`, `7666608` |
-| 4. Campaign planning, dependency intelligence, Devin integration      | **Complete** (local Devin CLI; live dispatch not exercised) | Task 4 commits (see §9)                                                     |
-| 5. Migration execution, verification, Devin repair loop               | Not started                                                 |                                                                             |
-| 6. End-to-end workflow, packaging, security audit, submission         | Not started                                                 |                                                                             |
+| Task                                                                  | State                                                                                           | Commits                                                                     |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1. Foundation (shell, environment checks, website)                    | Complete                                                                                        | `cca3cf6`                                                                   |
+| 2. Persistence, credentials, safe execution, activity                 | Complete                                                                                        | `4701627`, Windows CI fixes `5c6ea42`, `824691f`                            |
+| 3. Product profile, local repository intelligence, GitHub integration | **Complete**                                                                                    | `d388ff4`, `0e10fa1`, `43f264b`, `62a1b4b`, `9a9f265`, `e1cd62d`, `7666608` |
+| 4. Campaign planning, dependency intelligence, Devin integration      | **Complete** (local Devin CLI; live dispatch not exercised)                                     | Task 4 commits (see §9)                                                     |
+| 5. Migration execution, verification, Devin repair loop               | **Complete** (live Devin dispatch not exercised)                                                | branch `feat/verification-repair-loop` (`9fd1b3d`, pushed; see §8d)         |
+| 6. End-to-end workflow, packaging, security audit, submission         | **In progress**: repository-management hardening done; packaging, audit, submission not started | same branch                                                                 |
 
 - **Repository:** `https://github.com/ABDULMUNAFZ/ShiftOps` (public). Branch `main` tracks `origin/main`.
 - **CI:** GitHub Actions `ci.yml` runs TypeScript plus Rust on Linux, macOS and Windows. Run `40128969708` for `7666608` passed all four jobs.
-- **Database:** schema version **9** (migration 9 adds Devin task approval/hash and member review flags; the real database is still at 8 and upgrades on next app launch with a backup).
+- **Database:** schema version **10**. Migration 9 adds Devin task approval/hash and member review flags; migration 10 adds verification plans, repair tasks, one-live-operation indexes and repository display name and notes. The real database is still at 8 and upgrades on next app launch with a backup; a rehearsal on a copy upgraded 8 → 10 cleanly.
 - **Hackathon:** built for Devin Hacks Kochi 2026. The credit appears only in the README introduction, the website footer, the desktop About page and `SUBMISSION.md`. ShiftOps is independent and not an official Cognition product.
 
 ## 1. How to resume
 
 1. `cd ~/shiftops && git status && git log --oneline -10`, then confirm it matches §0.
 2. Read `AGENTS.md` (hard rules), this file, and the newest entries of `CHANGELOG.md`.
-3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 92 JS tests and 187 Rust tests passing, 3 ignored.
-4. Tasks 1–4 are complete. Do not start Task 5 without its specification.
+3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 112 JS tests and 208 Rust tests passing, 3 ignored.
+4. Tasks 1–5 are complete; Task 6 is in progress (§8d). Do not start further Task 6 work without its specification.
 
 Environment on the development Mac:
 
@@ -35,7 +35,7 @@ Environment on the development Mac:
 A pnpm monorepo:
 
 - **`apps/desktop`**: Tauri 2.12 with React 19, Vite 8, TanStack Query, React Hook Form + Zod, cmdk and Tailwind 4.
-  - The Rust core (`src-tauri/src`) owns every native operation and exposes **84 commands** (§6).
+  - The Rust core (`src-tauri/src`) owns every native operation and exposes **92 commands** (§6).
   - The web view has no shell, fs, http, sql, dialog or opener permissions; the capability file is `core:default` only.
 - **`apps/website`**: Next.js 16 static export (landing, docs, security, privacy, download).
 - **`packages/core`**: Zod contracts for every native model (`domain.ts`), the error contract (`errors.ts`), settings, environment checks, and the `planWaves` planner.
@@ -137,6 +137,7 @@ Full reasons are in `CHANGELOG.md` and `ARCHITECTURE.md`.
   - The app-level policy allows only `environment_check`.
   - Discovery and scanning use a separate runner whose policy is `readonly_git`, limited to exact argument vectors.
   - Managed clone uses `managed_clone` (one `git clone` vector).
+  - **Task 5 (rule 5 record):** `ExecutionPolicy::verification(root, vectors)` enables `dependency_install`, `build`, `test` and `lint` only for the exact (program, arguments) vectors of one approved verification plan (`pnpm`/`npm`/`yarn` install with `--ignore-scripts`, and `run <typecheck|lint|build|test|check>`), only with `TrustRequirement::TrustedRepository`, and only inside that checkout. The Devin-only exception for `TrustedRepository` is replaced by an explicit per-policy `trusted_checkout` flag, set only by `devin_dispatch` and `verification`. Reason: independent verification must run the repository's own checks; the trusted, confirmed, hash-pinned plan is the gate.
   - **Task 4 (rule 5 record):** `devin` is enabled by `devin_cli` (exactly `version`, `auth status`, `doctor`) and `devin_dispatch` (exactly `-p <prompt> --permission-mode smart --sandbox --respect-workspace-trust false`, cwd inside one trusted checkout). `TrustedRepository` is accepted only for the `devin` category. Reason: delegation must run in the repository; every other gate is in `dispatch_agent_task`.
   - Install, build, test, lint, Docker and custom commands stay denied. No capability or plugin change in the web view (rule 4).
 - **Git safety prefix:** `--no-pager --no-optional-locks -c core.fsmonitor=false -c core.untrackedCache=false -c log.showSignature=false -c color.ui=false`.
@@ -153,7 +154,7 @@ Full reasons are in `CHANGELOG.md` and `ARCHITECTURE.md`.
 - **Keychain:** service `dev.shiftops.desktop`. No real credentials stored by the agent; tests use `dev.shiftops.desktop.test.<uuid>` and clean up.
 - **Incident:** during milestone 4 the agent's still-running dev app applied migration 7 to this database mid-development. The schema matches the committed SQL and a v6 backup exists. The extra restarts added 15 `database.opened` and 15 environment-check events. AGENTS.md rule 11 now forbids this.
 
-## 6. Native commands (84)
+## 6. Native commands (92)
 
 | Area             | Commands                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -171,14 +172,16 @@ Full reasons are in `CHANGELOG.md` and `ARCHITECTURE.md`.
 | Workspace        | `get_managed_workspace`, `approve_managed_workspace`, `preview_managed_clone`, `start_managed_clone`, `cancel_managed_clone`, `list_repository_clones`, `cleanup_managed_clone`, `inspect_existing_clone`, `link_existing_clone`                                                                                                                                                                            |
 | Campaigns        | `create_campaign`, `update_campaign`, `delete_campaign`, `set_campaign_status`, `add_campaign_repositories`, `remove_campaign_repository`, `exclude_campaign_repository`, `include_campaign_repository`, `resolve_member_review`, `campaign_plan_evidence`, `apply_campaign_plan`, `refresh_dependency_edges`, `list_repository_dependencies`                                                               |
 | Devin            | `devin_status`, `create_agent_task`, `approve_agent_task`, `dispatch_agent_task`, `cancel_agent_task`, `list_agent_runs`                                                                                                                                                                                                                                                                                    |
+| Verification     | `preview_verification`, `start_verification`, `cancel_verification`, `list_verification_checks`, `create_repair_task`                                                                                                                                                                                                                                                                                       |
+| Repository edits | `update_repository_metadata`, `unlink_repository_checkout`, `delete_managed_checkout`                                                                                                                                                                                                                                                                                                                       |
 | Readiness        | `get_submission_readiness`, `open_submission_file`                                                                                                                                                                                                                                                                                                                                                          |
 
-Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shiftops://github-auth`, `shiftops://clone`.
+Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shiftops://github-auth`, `shiftops://clone`, `shiftops://verification`.
 
 ## 7. Tests and verification (latest)
 
-- **JavaScript:** 92 tests — core 21, github 11, devin 2, verification 4, ui 3, website 1, desktop 58.
-- **Rust:** 187 passed, 3 ignored. The ignored ones are manual rehearsals:
+- **JavaScript:** 112 tests — core 21, github 11, devin 2, verification 4, ui 3, website 3, desktop 68.
+- **Rust:** 208 passed, 3 ignored. The ignored ones are manual rehearsals:
   - `upgrade_rehearsal` with `SHIFTOPS_UPGRADE_DB`;
   - `scan_rehearsal` with `SHIFTOPS_SCAN_PATH`;
   - `devin::status_rehearsal` (needs the Devin CLI; verified: installed 3000.11.205, authenticated).
@@ -198,11 +201,15 @@ Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shifto
 
 - **Windows:** cancellation kills only the direct child process. Walker, scanner and real-Git tests are Unix-only.
 - **Keychain:** keychain tests skip, with a printed reason, where no keychain exists (headless Linux).
-- **Unbuilt data paths:** activity and run logs are never pruned or rotated; credential validation status is not refreshed automatically; agent and verification services exist but nothing creates their records yet.
+- **Unbuilt data paths:** activity and run logs are never pruned or rotated; credential validation status is not refreshed automatically; migration patterns are still never created.
 - **Scanner limits:** declarative only, with no dependency-tree resolution; YAML and XML are read line-based.
 - **GitHub limits:** one account at a time; OAuth asks for `repo` (GitHub has no read-only equivalent); PR checks are summarised for the first 30 PRs.
-- **Devin prompt check:** `devin::validate_prompt` (in `dispatch_spec` and the `devin_dispatch` policy) rejects empty, whitespace-only, NUL-containing, over-200,000-byte and option-like prompts (first non-whitespace character `-`). Fixed on branch `fix/devin-prompt-option-injection`.
+- **Devin prompt check:** `devin::validate_prompt` (in `dispatch_spec` and the `devin_dispatch` policy) rejects empty, whitespace-only, NUL-containing, over-200,000-byte and option-like prompts (first non-whitespace character `-`). Merged in PR #1 (`30099d0`).
 - **Readiness limits:** the secret scan is a bounded heuristic (paths and rule names only); `Submitted` and the final SHA stay unset until Task 6's human submission flow.
+- **Verification limits:** Node.js repositories only (root `package.json`); monorepo packages are verified through root scripts only; Yarn Berry (`--immutable`) is not distinguished from Yarn 1; installs pass `--ignore-scripts`, so packages that need lifecycle scripts may fail to build; verification runs in the checkout itself, not an isolated worktree, and Git LFS or submodules are not prepared.
+- **Repair limits:** at most 2 repair tasks per campaign member; affected files come from path patterns in tool output, so failures without file paths are not delegated; the automatic re-run after a repair needs an unchanged plan hash.
+- **Not exercised live:** a real Devin dispatch, a real repair session and real package-manager runs from the app. Tests use a fixture package manager on a private search path and a disabled Devin CLI.
+- **Devin CLI / XProtect:** the macOS "Malicious Script Blocked" item was not identified. The installed binary `~/.local/share/devin/cli/_versions/3000.11.205/bin/devin` passes `codesign --verify --strict`: Developer ID Application EXAFUNCTION, INC. (83Z2LHX6XW), hardened runtime, sha256 `edb6958dd81cf344d29019412445734527eab43471505fd3e2a5d4c3583fdf1f`. No XProtect entries appear in three days of unified log, and the `_download` staging folder is empty. Release-manifest checksum comparison was not done. The agent did not execute the CLI.
 - **Build size:** the desktop bundle is a single chunk of roughly 717 kB.
 - **Build Log artifact** (claude.ai, pinned) mirrors this file. If they disagree, this file wins.
 
@@ -244,10 +251,33 @@ All three follow-up items are now done: the milestone was committed as `9a9f265`
 - Not exercised by the agent: a live dispatch (modifies a real checkout and spends the owner's Devin usage; needs explicit owner approval). Session status beyond process exit (Devin PR, branch) is not read back; Task 5 inspects the working tree.
 - Dependency edges are name-match heuristics; stored as `inferred`, never confirmed automatically.
 
+## 8d. Task 5 and Task 6 (repository hardening), 2026-10-25
+
+The working specification is the owner's "Complete Steps 5 and 6" prompt. Task 5 is implemented; Task 6's repository-management hardening is implemented. Packaging, the security audit and the submission flow (the original Task 6 title) are not started.
+
+- **Verification:** `src-tauri/src/verification.rs` (plan derivation, failure analysis, jobs, cancellation), `ExecutionPolicy::verification`, migration 10, and the commands `preview_verification`, `start_verification`, `cancel_verification` and `list_verification_checks`. UI: Campaign detail → Verify (`features/verification/VerificationPanel.tsx`).
+- **Repair loop:** `create_repair_task` drafts from the latest failed run; repair tasks are bounded to 2 per member; `devin::build_repair_instructions` neutralises fences and redacts output. A successful repair session re-runs the pinned plan automatically only if its hash is unchanged (otherwise `verification.rerun_blocked`).
+- **Dispatch hardening:** atomic `claim_for_dispatch` with re-check of the instruction hash; refuses a dirty working tree, a live verification and a second live session; releases the claim when dispatch stops early.
+- **Recovery:** on start, interrupted Devin runs, tasks and members and interrupted verification runs and checks are closed as failed, error or cancelled and recorded (`app.interrupted_work_recovered`).
+- **Migrations:** a database newer than the app is refused and left untouched. Migration 10 has an upgrade test from every version, and a rehearsal on a copy of the real database (8 → 10) passed integrity and foreign-key checks.
+- **Repository management:** display name and notes, `checkoutAvailable`, confirmed trust changes (lowering cancels live work), unlink checkout, typed-path deletion of ShiftOps-managed clones only, and a busy guard on removal operations. The five import actions are on the Repositories page.
+- **Readiness:** now requires a passing validation recorded for the current HEAD (before this, it could report Ready with no validation). Non-blocking `warnings` are separated from blocking reasons, and the page refreshes on window focus.
+- **Contract fix:** `githubLinkMethod` now accepts `metadata_only` and `discovery`. Before this, any metadata-only or discovered GitHub record failed Zod validation and broke the repository list.
+
+## 8e. Website, desktop UI and branding (2026-10-25)
+
+- **Website:** the landing page (`apps/website/src/app/page.tsx`) is dark and full-bleed with acid-lime accents. Sections: hero, illustrative product mockup (labelled as such), problem/solution, a six-step workflow, use cases, verification, safeguards and a download CTA. The CTA says honestly that no signed installers exist yet. GSAP 3.15 ScrollTrigger drives the hero entrance, section reveals, the preview tilt and the workflow progress line; all are skipped under reduced motion. The hero glow follows the pointer for mouse users only. The site defaults to dark.
+- **Brand:** the shared accent is acid lime (dark `oklch(0.91 0.2 125)`, light deep olive for contrast). The icon (`src-tauri/icons/icon.svg`) is lime, and every PNG/ICNS/ICO was regenerated with `tauri icon`. Favicons: website `app/icon.svg`, desktop `public/favicon.svg`.
+- **Desktop UI:** rounded cards, pill buttons and badges in `@shiftops/ui`; a lime active navigation and larger brand block in the shell; larger page headers. Overview adds live counts and a "Get started" checklist driven by real data, and replaces a stale empty state. The Verification page shows status badges, profile, trigger and time.
+- **Docs:** README features, quick start, architecture and tests; `docs/USER_MANUAL.md`.
+- **Visual verification:** the website was rendered in headless Chrome at 1440 px and 500 px. The desktop UI was not rendered in Tauri: launching it would run the environment check that executes the `devin` binary (see the XProtect note) and would upgrade the real database. It is covered by component tests only.
+
 ## 9. Exact next step
 
-Task 4 is complete; commit SHAs and the CI run are recorded in the newest `CHANGELOG.md` entry.
+Task 5 and Task 6's repository hardening are implemented on the feature branch (§8d); see the newest `CHANGELOG.md` entry. The branch is pushed to origin; a PR and merge need the owner's explicit authorisation. Next: the rest of Task 6 (end-to-end workflow, packaging, security audit, submission), when its specification arrives. A live Devin dispatch still needs the owner's explicit approval.
+
+Task 4 final state (kept for reference): commit SHAs and the CI run are recorded in the `CHANGELOG.md` Task 4 entry.
 
 Task 3 final state (kept for reference): commits `e1cd62d`, `7666608`, `0d86fb5`; CI run `40129274651` green on all platforms; real database at schema 8.
 
-The next work is **Task 5** (migration execution, independent verification, Devin repair loop). Do not start it without its specification. Before a live dispatch, the owner must approve it explicitly: it modifies a real checkout and spends Devin usage.
+Before a live dispatch, the owner must approve it explicitly: it modifies a real checkout and spends Devin usage.

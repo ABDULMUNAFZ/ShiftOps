@@ -2,6 +2,35 @@
 
 Every meaningful change, newest first. Each entry is written in the same commit as the change. Timestamps are real, in IST (UTC+05:30). Entries marked **retrospective** were reconstructed from Git history after the fact; their timestamps are the commit times.
 
+## 2026-10-25T04:32:20+05:30 — Premium website, refreshed desktop UI, brand icons and user manual
+
+- Changed:
+  - Website landing page rebuilt: dark, full-bleed, acid-lime accents, rounded modular cards. Sections: hero, illustrative product mockup (labelled), problem/solution, six-step workflow, use cases, verification, safeguards, and an honest download CTA (no signed installers yet). GSAP 3.15 ScrollTrigger animates the hero entrance, reveals, the preview tilt and the workflow progress line; nothing animates under reduced motion. The pointer glow is for mouse users only. Header and footer restyled; the site defaults to dark.
+  - Brand accent moved to acid lime in the shared tokens; logo, `icon.svg` and all platform icons (PNG, ICNS, ICO) regenerated with `tauri icon`; favicons added for the website and the desktop web view.
+  - Desktop: rounded cards, pill buttons and badges; a lime active state in the sidebar; larger page headers; Overview live counts and a data-driven "Get started" checklist; Verification page badges, profile, trigger and time.
+  - README: features, quick start, architecture and tests. New `docs/USER_MANUAL.md`. SECURITY records the open XProtect item.
+- Why: a complete, honest product presentation and a consistent brand across the site and the app.
+- Validation: full `pnpm check`, website and desktop builds (results in the commit message). Website rendered in headless Chrome at desktop and narrow widths. The desktop UI was not launched in Tauri (see `PROJECT_STATE.md` §8e).
+
+## 2026-10-25T04:12:18+05:30 — Independent verification, bounded Devin repair loop and repository hardening (Task 5, Task 6 part 1)
+
+- Changed:
+  - Verification: a plan derived from the checkout's own `package.json` and lockfile (install with `--ignore-scripts`, then `typecheck`/`lint`/`build`/`test`/`check` scripts), a hash over vectors and script bodies, an exact-vector `ExecutionPolicy::verification` for trusted checkouts, real exit codes, redacted output, affected-file and actionability evidence, cancellation, and live events.
+  - Repair loop: bounded repair tasks (2 per member) drafted from the latest failed run, through the existing approval and dispatch. A successful repair session automatically re-runs the approved plan only if its hash is unchanged. Only a passed run marks a member `verified`.
+  - Dispatch: atomic claim with re-check of the instruction hash, one live session per member (unique index), refusal for a dirty checkout or a live verification, claim released on early failure.
+  - Recovery: interrupted Devin sessions and verification runs are closed on start as failed / error, never succeeded, and recorded.
+  - Migrations: migration 10 (task kind, repair links, plan hash and trigger, one-live indexes, display name and notes). A database newer than the app is refused and left untouched.
+  - Repository management: editable display name and notes, checkout availability, confirmed trust changes (lowering trust cancels live work), unlink checkout, typed-path deletion of ShiftOps-managed clones only, and busy guards. The Repositories page offers the five import actions directly.
+  - Readiness: requires a passing validation of the current HEAD; separates non-blocking warnings; refreshes on focus.
+  - Fixed: the `githubLinkMethod` contract rejected `metadata_only` and `discovery`, so metadata-only and discovered GitHub records broke the repository list.
+  - UI: Verify panel on campaign members; repair badges; confirmation dialogs for approve, dispatch and trust; repository management card.
+- Why: Task 5 needs evidence-based verification of Devin's work and a safe, bounded repair loop. Task 6 starts by hardening repository management so trust, ownership and deletion are enforced in Rust and recorded.
+- Validation:
+  - `pnpm check`: 110 JavaScript tests (desktop 68); 208 Rust tests passed, 3 ignored; Prettier, types, ESLint, rustfmt and Clippy `-D warnings` clean. Website and desktop production builds pass.
+  - New Rust tests cover plan derivation, hash changes, linked manifests, the exact-vector policy, real exit-code verdicts (fixture package manager), cancellation, duplicate refusal, untrusted refusal, crash recovery, the atomic claim, tamper detection, repair bounds, repair-prompt neutralisation, managed-clone deletion bounds, the newer-schema refusal and the readiness validation rule. IPC tests cover the new gates and restart recovery.
+  - Migration rehearsal on a copy of the real database: 8 → 10 with backup; `integrity_check` ok; no foreign-key violations. The real database was not modified.
+- Limitations: Node.js verification only; no isolated worktree; no live Devin dispatch, repair session or package-manager run from the app was exercised; the XProtect item remains unidentified (see `PROJECT_STATE.md` §8).
+
 ## 2026-10-25T02:54:47+05:30 — Readiness tolerates a missing origin/main
 
 - Changed: Submission Readiness skips the `origin/main..HEAD` ahead count when `refs/remotes/origin/main` or `HEAD` does not resolve, reports the count as unknown and adds the reason "origin/main is not available locally". Before, `collect` failed with `fatal: ambiguous argument 'refs/remotes/origin/main..HEAD'`.

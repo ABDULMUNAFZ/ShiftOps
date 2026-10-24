@@ -73,6 +73,12 @@ pub struct Repository {
     pub ownership: Option<Ownership>,
     /// How the GitHub identity was attached, when there is one.
     pub github_link_method: Option<LinkMethod>,
+    /// User-edited name shown instead of `name`; discovery never changes it.
+    pub display_name: Option<String>,
+    pub notes: Option<String>,
+    /// Whether the recorded checkout folder exists now. Filled in by the
+    /// command layer (`None` from the database, and for metadata-only records).
+    pub checkout_available: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -106,7 +112,7 @@ pub struct GitState {
 const REPO_COLUMNS: &str = "SELECT id, source_type, name, local_path, remote_url, github_host, github_owner, github_repo, \
     default_branch, current_branch, current_commit, trust_status, created_at, updated_at, root_id, git_kind, \
     is_detached, is_dirty, staged_count, modified_count, untracked_count, last_commit_at, git_collected_at, \
-    git_warnings_json, ownership, github_link_method, \
+    git_warnings_json, ownership, github_link_method, display_name, notes, \
     (SELECT s.status FROM repository_scans s WHERE s.repository_id = repositories.id \
         ORDER BY s.started_at DESC, s.rowid DESC LIMIT 1) AS last_scan_status, \
     (SELECT s.completed_at FROM repository_scans s WHERE s.repository_id = repositories.id AND s.status = 'completed' \
@@ -145,6 +151,9 @@ fn map_repo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Repository> {
         scan_summary: json_col_opt(r, "scan_summary_json")?,
         ownership: r.get("ownership")?,
         github_link_method: r.get("github_link_method")?,
+        display_name: r.get("display_name")?,
+        notes: r.get("notes")?,
+        checkout_available: None,
     })
 }
 
@@ -415,7 +424,13 @@ pub fn list(conn: &Connection, params: &ListParams) -> AppResult<Page<Repository
     let mut filter = Filter::default();
     filter.any_of("trust_status", &values);
     filter.search(
-        &["name", "local_path", "github_owner", "github_repo"],
+        &[
+            "name",
+            "display_name",
+            "local_path",
+            "github_owner",
+            "github_repo",
+        ],
         params.search_pattern(),
     );
     paginate(
@@ -436,6 +451,73 @@ pub fn update_git_state(conn: &Connection, id: &str, state: &GitState) -> AppRes
         params![id, state.default_branch, state.current_branch, state.current_commit, state.remote_url, time_util::now()],
     )?;
     expect_changed(changed, "Repository", id)?;
+    get(conn, id)
+}
+
+impl Repository {
+    /// Check the recorded checkout folder now.
+    pub fn with_availability(mut self) -> Self {
+        self.checkout_available = self
+            .local_path
+            .as_deref()
+            .map(|p| std::path::Path::new(p).is_dir());
+        self
+    }
+}
+
+/// Set or clear the user-editable display name and notes.
+pub fn update_metadata(
+    conn: &Connection,
+    id: &str,
+    display_name: Option<&str>,
+    notes: Option<&str>,
+) -> AppResult<Repository> {
+    let clean = |v: Option<&str>| {
+        v.map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    let display_name = clean(display_name);
+    let notes = clean(notes);
+    if let Some(n) = &display_name {
+        require_text(n, "Display name", 255)?;
+    }
+    if notes.as_ref().is_some_and(|n| n.chars().count() > 4000) {
+        return Err(AppError::validation(
+            "Notes must be at most 4000 characters.",
+        ));
+    }
+    let changed = conn.execute(
+        "UPDATE repositories SET display_name = ?2, notes = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, display_name, notes, time_util::now()],
+    )?;
+    expect_changed(changed, "Repository", id)?;
+    get(conn, id)
+}
+
+/// Detach a GitHub-linked record from its checkout: it becomes metadata-only
+/// again (same id, trust, history). The folder is not touched. A record
+/// without a GitHub identity has nothing to fall back to; remove it instead.
+pub fn unlink_checkout(conn: &Connection, id: &str) -> AppResult<Repository> {
+    let current = get(conn, id)?;
+    if current.github_owner.is_none() {
+        return Err(AppError::validation(
+            "This repository has no GitHub identity to keep. Remove the record instead; files stay on disk.",
+        ));
+    }
+    if current.local_path.is_none() {
+        return Err(AppError::validation(
+            "This repository has no linked checkout.",
+        ));
+    }
+    conn.execute(
+        "UPDATE repositories SET source_type = 'github', local_path = NULL, root_id = NULL, git_kind = NULL,
+             is_detached = 0, is_dirty = NULL, staged_count = NULL, modified_count = NULL, untracked_count = NULL,
+             current_branch = NULL, current_commit = NULL, last_commit_at = NULL, git_collected_at = NULL,
+             git_warnings_json = '[]', ownership = NULL, github_link_method = 'metadata_only', updated_at = ?2
+         WHERE id = ?1",
+        params![id, time_util::now()],
+    )?;
     get(conn, id)
 }
 

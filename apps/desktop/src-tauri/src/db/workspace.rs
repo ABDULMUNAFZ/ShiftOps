@@ -250,6 +250,19 @@ pub fn list_clones(conn: &Connection, limit: u32) -> AppResult<Vec<RepositoryClo
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
+/// The successful clone that created `path`, if ShiftOps made it.
+pub fn succeeded_clone_at(conn: &Connection, path: &str) -> AppResult<Option<RepositoryClone>> {
+    Ok(conn
+        .query_row(
+            &format!(
+                "{CLONE_COLUMNS} WHERE destination_path = ?1 AND status = 'succeeded' ORDER BY started_at DESC LIMIT 1"
+            ),
+            [path],
+            map_clone,
+        )
+        .optional()?)
+}
+
 /// The open attempt (running, failed or cancelled) holding `path`, if any.
 pub fn open_attempt_at(conn: &Connection, path: &str) -> AppResult<Option<RepositoryClone>> {
     Ok(conn

@@ -10,9 +10,10 @@ import {
 import { Badge, Button, Card, CardHeader, EmptyState, Spinner } from "@shiftops/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Play, RefreshCw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ErrorDisplay } from "../components/ErrorDisplay";
+import { VerificationPanel } from "../features/verification/VerificationPanel";
 import { invalidateAfter } from "../lib/invalidation";
 import { native } from "../lib/native";
 import { useAgentTasks, useCampaign, useCampaignMembers } from "../lib/queries";
@@ -306,70 +307,92 @@ function MemberRow({
   const include = useAction(() => native.includeCampaignRepository(member.id));
   const resolveReview = useAction(() => native.resolveMemberReview(member.id));
   const createTask = useAction(() => native.createAgentTask(member.id));
+  const [verifying, setVerifying] = useState(false);
   const error = exclude.error ?? include.error ?? resolveReview.error ?? createTask.error;
   return (
-    <tr className="border-b border-border align-top last:border-0">
-      <td className="px-4 py-2 font-medium">
-        <Link className="text-accent hover:underline" to={`/repositories/${member.repositoryId}`}>
-          {member.repositoryName}
-        </Link>
-      </td>
-      <td className="px-2 py-2 text-xs">{member.classification}</td>
-      <td className="px-2 py-2 text-xs">{member.riskScore ?? "—"}</td>
-      <td className="px-2 py-2 text-xs">{member.waveNumber ?? "—"}</td>
-      <td className="px-2 py-2">
-        <Badge tone={member.status === "excluded" ? "danger" : member.status === "verified" ? "ok" : "neutral"}>
-          {member.status}
-        </Badge>
-        {member.reviewRequired ? <Badge tone="warn">review</Badge> : null}
-      </td>
-      <td className="px-4 py-2 text-right">
-        <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
-          {member.reviewRequired ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void resolveReview.mutate()}
-              disabled={resolveReview.isPending}
-            >
-              Clear review
-            </Button>
-          ) : null}
-          {member.status === "excluded" ? (
-            <Button size="sm" variant="ghost" onClick={() => void include.mutate()} disabled={include.isPending}>
-              Include
-            </Button>
-          ) : (
-            <>
-              <input
-                className="h-7 w-36 rounded-md border border-border bg-surface px-2 text-xs text-fg"
-                placeholder="Exclusion reason"
-                value={reason}
-                onChange={(e) => onReason(e.target.value)}
-              />
+    <Fragment>
+      <tr className="border-b border-border align-top last:border-0">
+        <td className="px-4 py-2 font-medium">
+          <Link className="text-accent hover:underline" to={`/repositories/${member.repositoryId}`}>
+            {member.repositoryName}
+          </Link>
+        </td>
+        <td className="px-2 py-2 text-xs">{member.classification}</td>
+        <td className="px-2 py-2 text-xs">{member.riskScore ?? "—"}</td>
+        <td className="px-2 py-2 text-xs">{member.waveNumber ?? "—"}</td>
+        <td className="px-2 py-2">
+          <Badge tone={member.status === "excluded" ? "danger" : member.status === "verified" ? "ok" : "neutral"}>
+            {member.status}
+          </Badge>
+          {member.reviewRequired ? <Badge tone="warn">review</Badge> : null}
+        </td>
+        <td className="px-4 py-2 text-right">
+          <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+            {member.reviewRequired ? (
               <Button
                 size="sm"
                 variant="ghost"
-                className="text-danger"
-                onClick={() => void exclude.mutate()}
-                disabled={exclude.isPending}
+                onClick={() => void resolveReview.mutate()}
+                disabled={resolveReview.isPending}
               >
-                Exclude
+                Clear review
               </Button>
-            </>
-          )}
-          {task ? (
-            <Badge tone="accent">task {task.status}</Badge>
-          ) : (
-            <Button size="sm" variant="ghost" onClick={() => void createTask.mutate()} disabled={createTask.isPending}>
-              Draft task
-            </Button>
-          )}
-        </div>
-        {error ? (
-          <p className="mt-1 text-xs text-danger">{String((error as { message?: string }).message ?? error)}</p>
-        ) : null}
-      </td>
-    </tr>
+            ) : null}
+            {member.status === "excluded" ? (
+              <Button size="sm" variant="ghost" onClick={() => void include.mutate()} disabled={include.isPending}>
+                Include
+              </Button>
+            ) : (
+              <>
+                <input
+                  className="h-7 w-36 rounded-md border border-border bg-surface px-2 text-xs text-fg"
+                  placeholder="Exclusion reason"
+                  value={reason}
+                  onChange={(e) => onReason(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-danger"
+                  onClick={() => void exclude.mutate()}
+                  disabled={exclude.isPending}
+                >
+                  Exclude
+                </Button>
+              </>
+            )}
+            {member.status !== "excluded" ? (
+              <Button size="sm" variant="ghost" aria-expanded={verifying} onClick={() => setVerifying((v) => !v)}>
+                {verifying ? "Hide verification" : "Verify"}
+              </Button>
+            ) : null}
+            {task ? (
+              <Badge tone="accent">
+                {task.taskKind === "repair" ? "repair" : "task"} {task.status}
+              </Badge>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void createTask.mutate()}
+                disabled={createTask.isPending}
+              >
+                Draft task
+              </Button>
+            )}
+          </div>
+          {error ? (
+            <p className="mt-1 text-xs text-danger">{String((error as { message?: string }).message ?? error)}</p>
+          ) : null}
+        </td>
+      </tr>
+      {verifying ? (
+        <tr className="border-b border-border bg-surface-2/40">
+          <td colSpan={6}>
+            <VerificationPanel memberId={member.id} />
+          </td>
+        </tr>
+      ) : null}
+    </Fragment>
   );
 }

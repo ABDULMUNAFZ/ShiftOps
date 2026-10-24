@@ -33,6 +33,9 @@ const task = {
   completedAt: null,
   createdAt: "2026-10-25T00:00:00.000Z",
   updatedAt: "2026-10-25T00:00:00.000Z",
+  taskKind: "migration",
+  sourceVerificationRunId: null,
+  verificationPlanHash: null,
 };
 
 beforeEach(() => {
@@ -61,8 +64,30 @@ describe("AgentRunsPage", () => {
     fireEvent.click(await screen.findByText("task-000"));
     expect(screen.queryByRole("button", { name: /Dispatch/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Approve/ }));
+    expect(native.approveAgentTask).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(native.approveAgentTask).toHaveBeenCalledWith(task.id));
     expect(native.dispatchAgentTask).not.toHaveBeenCalled();
     expect(screen.getByText(/Do not push/)).toBeTruthy();
+  });
+
+  it("dispatch needs an explicit confirmation and Keep cancels it", async () => {
+    native.listAgentTasks.mockResolvedValue({
+      items: [{ ...task, approvedAt: "2026-10-25T00:01:00.000Z", taskKind: "repair" }],
+      total: 1,
+      limit: 200,
+      offset: 0,
+    });
+    renderWithClient(<AgentRunsPage />);
+    fireEvent.click(await screen.findByText("task-000"));
+    expect(screen.getByText("repair")).toBeTruthy();
+    expect(screen.getByText(/re-runs the same approved checks/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Dispatch/ }));
+    expect(screen.getByRole("alertdialog").textContent).toMatch(/change files in this repository/);
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(native.dispatchAgentTask).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Dispatch/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(native.dispatchAgentTask).toHaveBeenCalledWith(task.id));
   });
 });

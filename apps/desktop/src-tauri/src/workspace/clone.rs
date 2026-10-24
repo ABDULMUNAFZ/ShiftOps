@@ -875,6 +875,69 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn managed_checkout_deletion_is_explicit_bounded_and_reversible_to_metadata() {
+        let e = env(Serve::Files, false);
+        let dest = e.root.join("acme/api");
+        let (_, handle) = Clones::default()
+            .start(e.ctx.clone(), &e.gh_id, dest.to_str().unwrap())
+            .unwrap();
+        let repo = handle.await.unwrap().repository.unwrap();
+        let path = repo.local_path.clone().unwrap();
+        let del = |confirm: &str, clean: bool| {
+            super::super::delete_managed_checkout(&e.db, &repo.id, confirm, clean)
+        };
+        assert!(del(e.root.to_str().unwrap(), true)
+            .unwrap_err()
+            .message
+            .contains("does not match"));
+        assert!(del(&path, false)
+            .unwrap_err()
+            .message
+            .contains("uncommitted"));
+        assert!(
+            dest.join("package.json").exists(),
+            "nothing deleted by refused attempts"
+        );
+
+        let done = del(&path, true).unwrap();
+        assert!(!dest.exists());
+        assert!(e.root.exists(), "the workspace stays");
+        assert_eq!(done.id, repo.id, "same record");
+        assert_eq!(done.local_path, None);
+        assert_eq!(done.ownership, None);
+        assert_eq!(done.github_link_method, Some(LinkMethod::MetadataOnly));
+        let log =
+            e.db.read(|c| activity::list(c, &Default::default()))
+                .unwrap();
+        assert!(log
+            .items
+            .iter()
+            .any(|a| a.event_type == "repository.managed_files_deleted"));
+        // It can be cloned again afterwards.
+        assert!(preview(&e.db, &e.ctx.config, &e.gh_id).unwrap().ready);
+    }
+
+    #[test]
+    fn external_checkouts_are_never_deleted() {
+        let db = Database::open_in_memory();
+        let t = tempfile::tempdir().unwrap();
+        db.write(|c| {
+            c.execute(
+                "INSERT INTO repositories (id, source_type, name, local_path, ownership, created_at, updated_at)
+                 VALUES ('ext', 'local', 'mine', ?1, 'external', 't', 't')",
+                [t.path().display().to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let err =
+            super::super::delete_managed_checkout(&db, "ext", t.path().to_str().unwrap(), true)
+                .unwrap_err();
+        assert!(err.message.contains("never deleted"));
+        assert!(t.path().exists());
+    }
+
+    #[tokio::test]
     async fn failed_clone_keeps_folder_and_offers_cleanup() {
         // Nothing is served: every request is a 404.
         let e = env(Serve::Files, true);

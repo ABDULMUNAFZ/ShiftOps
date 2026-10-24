@@ -25,6 +25,7 @@ string_enum!(VerificationStatus {
     Error => "error",
     Cancelled => "cancelled",
 });
+string_enum!(RunTrigger { Manual => "manual", AfterRepair => "after_repair" });
 string_enum!(CheckCategory {
     Install => "install",
     Build => "build",
@@ -56,6 +57,9 @@ pub struct VerificationRun {
     pub started_at: String,
     pub completed_at: Option<String>,
     pub summary: Value,
+    /// Hash of the verification plan this run executed.
+    pub plan_hash: Option<String>,
+    pub trigger: RunTrigger,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,11 +87,19 @@ pub struct NewVerificationRun {
     pub agent_task_id: Option<String>,
     pub profile: String,
     pub verified_commit_sha: String,
+    #[serde(default)]
+    pub plan_hash: Option<String>,
+    #[serde(default = "manual")]
+    pub trigger: RunTrigger,
+}
+
+fn manual() -> RunTrigger {
+    RunTrigger::Manual
 }
 
 const RUN_COLUMNS: &str =
     "SELECT id, campaign_repository_id, agent_task_id, profile, verified_commit_sha, status, \
-    started_at, completed_at, summary_json";
+    started_at, completed_at, summary_json, plan_hash, trigger";
 
 fn map_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<VerificationRun> {
     Ok(VerificationRun {
@@ -100,6 +112,8 @@ fn map_run(r: &rusqlite::Row<'_>) -> rusqlite::Result<VerificationRun> {
         started_at: r.get("started_at")?,
         completed_at: r.get("completed_at")?,
         summary: json_col(r, "summary_json")?,
+        plan_hash: r.get("plan_hash")?,
+        trigger: r.get("trigger")?,
     })
 }
 
@@ -131,9 +145,17 @@ pub fn create_run(conn: &Connection, new: &NewVerificationRun) -> AppResult<Veri
     let id = new_id();
     conn.execute(
         "INSERT INTO verification_runs (id, campaign_repository_id, agent_task_id, profile, verified_commit_sha,
-             status, started_at) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6)",
-        params![id, new.campaign_repository_id, new.agent_task_id, new.profile, new.verified_commit_sha, time_util::now()],
-    )?;
+             status, started_at, plan_hash, trigger) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6, ?7, ?8)",
+        params![id, new.campaign_repository_id, new.agent_task_id, new.profile, new.verified_commit_sha,
+            time_util::now(), new.plan_hash, new.trigger],
+    )
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            AppError::validation("A verification run is already live for this repository.")
+        } else {
+            e.into()
+        }
+    })?;
     get_run(conn, &id)
 }
 
@@ -307,6 +329,38 @@ pub fn finish_check(
     get_check(conn, id)
 }
 
+/// The newest run for a campaign member, if any.
+pub fn latest_run_for_member(
+    conn: &Connection,
+    member_id: &str,
+) -> AppResult<Option<VerificationRun>> {
+    Ok(conn
+        .query_row(
+            &format!("{RUN_COLUMNS} FROM verification_runs WHERE campaign_repository_id = ?1 ORDER BY started_at DESC, rowid DESC LIMIT 1"),
+            [member_id],
+            map_run,
+        )
+        .optional()?)
+}
+
+/// Close runs and checks left live by an interrupted session as `error` /
+/// `cancelled`. An interrupted run never counts as passed.
+pub fn recover_interrupted(conn: &Connection) -> AppResult<usize> {
+    let now = time_util::now();
+    conn.execute(
+        "UPDATE verification_checks SET status = 'cancelled', completed_at = ?1,
+             suggested_action = 'ShiftOps stopped during this check. Run verification again.'
+         WHERE status IN ('pending', 'running')",
+        [&now],
+    )?;
+    Ok(conn.execute(
+        "UPDATE verification_runs SET status = 'error', completed_at = ?1,
+             summary_json = json_set(summary_json, '$.interrupted', json('true'))
+         WHERE status IN ('queued', 'running')",
+        [&now],
+    )?)
+}
+
 pub fn list_checks(conn: &Connection, run_id: &str) -> AppResult<Vec<VerificationCheck>> {
     let mut stmt = conn.prepare(&format!(
         "{CHECK_COLUMNS} FROM verification_checks WHERE verification_run_id = ?1 ORDER BY started_at, rowid"
@@ -333,6 +387,8 @@ mod tests {
                 create_run(
                     c,
                     &NewVerificationRun {
+                        plan_hash: None,
+                        trigger: RunTrigger::Manual,
                         campaign_repository_id: member_id.clone(),
                         agent_task_id: Some(t.id.clone()),
                         profile: "node".into(),
@@ -421,6 +477,8 @@ mod tests {
                 create_run(
                     c,
                     &NewVerificationRun {
+                        plan_hash: None,
+                        trigger: RunTrigger::Manual,
                         campaign_repository_id: "missing".into(),
                         agent_task_id: None,
                         profile: "node".into(),

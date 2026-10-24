@@ -40,16 +40,61 @@ Devin
 
 ShiftOps is built in six tasks. This table records what exists today.
 
-| Task                                                                | State                                 |
-| ------------------------------------------------------------------- | ------------------------------------- |
-| 1. Desktop foundation, environment checks, website                  | Complete                              |
-| 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                              |
-| 3. Product profile, local repository intelligence, GitHub           | Complete                              |
-| 4. Campaign planning, dependency intelligence, Devin integration    | Complete (local Devin CLI; see below) |
-| 5. Migration execution, independent verification, Devin repair loop | Not started                           |
-| 6. End-to-end workflow, packaging, security audit, submission       | Not started                           |
+| Task                                                                | State                                                                                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 1. Desktop foundation, environment checks, website                  | Complete                                                                                       |
+| 2. SQLite persistence, OS keychain, safe process runner, activity   | Complete                                                                                       |
+| 3. Product profile, local repository intelligence, GitHub           | Complete                                                                                       |
+| 4. Campaign planning, dependency intelligence, Devin integration    | Complete (local Devin CLI; see below)                                                          |
+| 5. Migration execution, independent verification, Devin repair loop | Complete (live Devin dispatch not exercised; see below)                                        |
+| 6. End-to-end workflow, packaging, security audit, submission       | In progress: repository-management hardening done; packaging, audit and submission not started |
 
 Details, decisions and test results: [PROJECT_STATE.md](PROJECT_STATE.md). Change history: [CHANGELOG.md](CHANGELOG.md).
+
+## Features
+
+- **Repository intake**: five import actions (Open Local Repository, Discover Folder, GitHub Metadata Only, Clone into Managed Workspace, Link Existing Clone), read-only Git inspection, and explicit trust levels.
+- **Repository intelligence**: a read-only scanner for runtimes, package managers, frameworks, scripts, Docker and CI. Every fact carries its file and line or JSON pointer.
+- **GitHub**: OAuth device flow or a fine-grained token kept in the OS keychain; browse and search; pull requests with check summaries.
+- **Campaigns**: one objective across many repositories. A deterministic planner classifies members, scores risk with cited evidence and builds dependency-first waves.
+- **Devin delegation**: a generated task per repository. You approve its exact text (SHA-256 pinned). Dispatch runs the local Devin CLI in its sandbox, only for trusted, clean checkouts.
+- **Independent verification and repair**: ShiftOps runs each repository's own checks and records real exit codes. Repairable failures become bounded repair tasks, at most 2 per repository.
+- **Audit trail**: an Activity Centre for every import, trust change, approval, dispatch, verification and cleanup.
+- **Submission Readiness**: an evidence checklist for this repository (documents, push state, validation of HEAD, a bounded secret scan).
+
+## Quick start
+
+```sh
+git clone https://github.com/ABDULMUNAFZ/ShiftOps.git && cd ShiftOps
+pnpm install
+pnpm dev:desktop        # desktop app with hot reload
+pnpm dev:website        # marketing site at http://localhost:3000
+pnpm check              # format, types, lint, JS + Rust tests, Clippy
+```
+
+There are no signed installers yet. To build a local, unsigned installer, run `pnpm --filter @shiftops/desktop tauri build`. The [user manual](docs/USER_MANUAL.md) walks through a full campaign.
+
+## Architecture at a glance
+
+```text
+React UI (web view, no shell/fs/http/sql permissions)
+   │  typed IPC: Zod-validated results, structured errors
+   ▼
+Rust core (Tauri 2)
+   ├─ SQLite (rusqlite, versioned migrations, backups before upgrades)
+   ├─ OS keychain (tokens never leave Rust)
+   ├─ ProcessRunner: argument vectors only, per-purpose policies
+   │    environment checks · read-only Git · one managed clone ·
+   │    Devin status/dispatch · approved verification plans
+   ├─ Scanner, planner evidence, GitHub client, verification engine
+   └─ Activity log (redacted)
+```
+
+Details are in [ARCHITECTURE.md](ARCHITECTURE.md) and the threat model is in [SECURITY.md](SECURITY.md).
+
+## Tests
+
+`pnpm check` runs Prettier, TypeScript, ESLint, Vitest (110 tests across the workspace), rustfmt, `cargo test` (208 tests; 3 manual rehearsals ignored) and Clippy with `-D warnings`. CI runs the same checks on Linux, macOS and Windows. Rust tests use temporary databases and a test keychain service, and real Git runs only against temporary repositories.
 
 ## Repository layout
 
@@ -117,13 +162,13 @@ ShiftOps talks to GitHub from its Rust core. Tokens are stored only in the OS ke
 
 **Fine-grained personal access token (fallback):** grant access to the repositories you need, with Metadata, Contents, Pull requests and Checks set to read-only, plus organisation Members (read) to list organisations. Paste it in Integrations → GitHub. ShiftOps validates it before storing it.
 
-Then use **Repositories → Browse GitHub** and choose one of three modes:
+Then, on **Repositories**, choose one of the three GitHub actions and select a repository:
 
 - **Metadata only** inventories the repository without downloading it; deep analysis remains unavailable.
 - **Clone into managed workspace** previews a new destination under a folder you explicitly approve, streams clone progress and scans the checkout after success.
 - **Link existing clone** compares its normalized remote with the GitHub repository and requires an explicit override when they differ. Existing clones remain external and are never modified or deleted.
 
-Repository detail lets you explicitly change trust or forget only the ShiftOps record. Forgetting a record never deletes checkout files. **Submission Readiness** derives the hackathon checklist from the current Git state, required documents, participant TODOs, validation evidence and a bounded tracked-secret review; it never marks the project Submitted automatically.
+Repository detail lets you change trust after a confirmation, edit the display name and notes, unlink a checkout, delete a ShiftOps-managed clone (typed path, clean tree only) or forget the record. Forgetting a record never deletes checkout files. **Submission Readiness** derives the hackathon checklist from the current Git state, required documents, participant TODOs, validation evidence and a bounded tracked-secret review; it never marks the project Submitted automatically.
 
 ## Campaigns and Devin delegation
 
@@ -135,6 +180,22 @@ Repository detail lets you explicitly change trust or forget only the ShiftOps r
 6. **Agent Runs → Approve**, then **Dispatch to Devin**. Dispatch requires: approval, a cleared review flag, classification `affected`, a trusted repository with a local checkout, and an installed, signed-in Devin CLI. It runs `devin -p <task> --permission-mode smart --sandbox --respect-workspace-trust false` in that checkout. Cancel stops the process group.
 
 Without a signed-in Devin CLI every step up to an approved draft still works; dispatch reports `DEVIN_NOT_CONFIGURED`.
+
+Dispatch also refuses a checkout with uncommitted changes, a member whose verification is running, and a second live session for the same repository.
+
+## Verification and repair
+
+1. **Campaign detail → Verify** on a member shows the verification plan derived from that checkout's own root `package.json` and lockfile: one dependency install with lifecycle scripts disabled (`pnpm install --frozen-lockfile --ignore-scripts`, `yarn install --frozen-lockfile --ignore-scripts` or `npm ci --ignore-scripts`, only when a lockfile exists), then whichever of the `typecheck`, `lint`, `build`, `test` and `check` scripts exist, with each script body shown.
+2. Verification runs the repository's own scripts, so it requires a **trusted** repository and a ticked confirmation. The plan hash covers every command and script body; if anything changed since you reviewed it, nothing runs.
+3. Each check records its real exit code, duration and redacted output. Failures are marked repairable only when they are a failed script (not the install, a timeout or a missing command) whose output names files inside the checkout.
+4. **Draft repair task** creates a bounded Devin task from the latest failed run (at most 2 per repository). It goes through the same Approve and Dispatch steps. When the repair session succeeds, ShiftOps re-runs the same approved plan automatically, but only if its hash is unchanged. A passed run marks the member `verified`; a Devin session alone never does.
+5. This version verifies Node.js repositories only. Other ecosystems report "no verification plan".
+
+## Managing repositories
+
+- The repository detail page edits a display name and notes (discovery never overwrites them), shows whether the checkout folder still exists, and changes trust only after a confirmation that states what the new level allows. Lowering trust cancels live verification and Devin work in that checkout.
+- There are three separate ways to let go of a repository. **Unlink checkout** turns a GitHub-linked record back into metadata-only and leaves the folder alone. **Delete managed files** is offered only for checkouts ShiftOps cloned; it needs the exact path typed and a clean working tree. **Forget record** removes the ShiftOps record only. External checkouts are never deleted.
+- The five import actions are on the Repositories page: Open Local Repository, Discover Folder, GitHub Metadata Only, Clone into Managed Workspace, and Link Existing Clone.
 
 ## Commands
 
@@ -178,6 +239,7 @@ SHIFTOPS_UPGRADE_DB=/path/to/copy.db cargo test --manifest-path apps/desktop/src
 
 ## Documentation
 
+- [docs/USER_MANUAL.md](docs/USER_MANUAL.md): step-by-step guide to using the app
 - [ARCHITECTURE.md](ARCHITECTURE.md): how the pieces fit together
 - [SECURITY.md](SECURITY.md): threat model and reporting
 - [CONTRIBUTING.md](CONTRIBUTING.md): workflow and standards

@@ -36,7 +36,7 @@ export function ErrorDisplay({ title, error, action }: { title: string; error: u
   const e = toAppError(error);
   const diagnostic = JSON.stringify(e, null, 2);
   return (
-    <div role="alert" className="rounded-md border border-danger/40 bg-danger/8 px-4 py-3 text-sm">
+    <div role="alert" className="rounded-xl border border-danger/40 bg-danger/8 px-4 py-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <p className="font-medium text-danger">{title}</p>
         <Badge tone="danger" className="font-mono">

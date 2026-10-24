@@ -18,6 +18,7 @@ use crate::error::{AppError, AppResult};
 use crate::time_util;
 
 string_enum!(AgentProvider { Devin => "devin" });
+string_enum!(TaskKind { Migration => "migration", Repair => "repair" });
 string_enum!(ExecutionMode { CloudSession => "cloud_session", LocalCli => "local_cli" });
 string_enum!(TaskStatus {
     Pending => "pending",
@@ -77,6 +78,12 @@ pub struct AgentTask {
     pub completed_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// `migration` (the campaign goal) or `repair` (fix a failed verification).
+    pub task_kind: TaskKind,
+    /// The failed verification run a repair task was drafted from.
+    pub source_verification_run_id: Option<String>,
+    /// The verification plan a repair task re-runs after a successful session.
+    pub verification_plan_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -101,7 +108,8 @@ pub struct TaskProgress {
 
 const TASK_COLUMNS: &str = "SELECT id, campaign_repository_id, provider, execution_mode, instructions_markdown, \
     external_session_id, external_session_url, worktree_path, branch_name, commit_sha, pull_request_url, status, \
-    instructions_hash, approved_at, started_at, completed_at, created_at, updated_at";
+    instructions_hash, approved_at, started_at, completed_at, created_at, updated_at, task_kind, \
+    source_verification_run_id, verification_plan_hash";
 
 fn map_task(r: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
     Ok(AgentTask {
@@ -123,6 +131,126 @@ fn map_task(r: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
         completed_at: r.get("completed_at")?,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,
+        task_kind: r.get("task_kind")?,
+        source_verification_run_id: r.get("source_verification_run_id")?,
+        verification_plan_hash: r.get("verification_plan_hash")?,
+    })
+}
+
+fn instructions_digest(text: &str) -> String {
+    crate::scanner::files::hex(&sha2::Sha256::digest(text.as_bytes()))
+}
+
+/// A repair task drafted from a failed verification run. It pins the plan
+/// hash the user approved so the same checks re-run after the session.
+pub fn create_repair_task(
+    conn: &Connection,
+    new: &NewAgentTask,
+    source_verification_run_id: &str,
+    verification_plan_hash: &str,
+) -> AppResult<AgentTask> {
+    let task = create_task(conn, new)?;
+    conn.execute(
+        "UPDATE agent_tasks SET task_kind = 'repair', source_verification_run_id = ?2, verification_plan_hash = ?3
+         WHERE id = ?1",
+        params![task.id, source_verification_run_id, verification_plan_hash],
+    )?;
+    get_task(conn, &task.id)
+}
+
+/// Repair tasks drafted for a campaign member so far (bounded by the caller).
+pub fn repair_attempts(conn: &Connection, member_id: &str) -> AppResult<u32> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM agent_tasks WHERE campaign_repository_id = ?1 AND task_kind = 'repair'",
+        [member_id],
+        |r| r.get(0),
+    )?)
+}
+
+/// Atomically move an approved, pending task to `queued` before any process
+/// starts. A second concurrent dispatch, a task whose stored instructions no
+/// longer match the approved hash, or a second live task for the same member
+/// (unique index) all fail here, so at most one Devin session can start.
+pub fn claim_for_dispatch(conn: &Connection, id: &str) -> AppResult<AgentTask> {
+    let task = get_task(conn, id)?;
+    if task.approved_at.is_none() {
+        return Err(AppError::validation(
+            "A Devin task must be approved before dispatch.",
+        ));
+    }
+    if task.instructions_hash.as_deref()
+        != Some(instructions_digest(&task.instructions_markdown).as_str())
+    {
+        return Err(AppError::validation(
+            "The stored task instructions no longer match what was approved. Draft and approve a new task.",
+        )
+        .with_context("taskId", id));
+    }
+    let changed = conn
+        .execute(
+            "UPDATE agent_tasks SET status = 'queued', updated_at = ?2 WHERE id = ?1 AND status = 'pending'",
+            params![id, time_util::now()],
+        )
+        .map_err(|e| {
+            if e.to_string().contains("UNIQUE") {
+                AppError::validation("Another Devin session is already live for this repository.")
+            } else {
+                e.into()
+            }
+        })?;
+    if changed == 0 {
+        return Err(AppError::validation(format!(
+            "Task is {}; only a pending task can dispatch.",
+            get_task(conn, id)?.status.as_str()
+        )));
+    }
+    get_task(conn, id)
+}
+
+/// Undo a claim when dispatch stops before a process started.
+pub fn release_claim(conn: &Connection, id: &str) -> AppResult<AgentTask> {
+    conn.execute(
+        "UPDATE agent_tasks SET status = 'pending', updated_at = ?2 WHERE id = ?1 AND status = 'queued'",
+        params![id, time_util::now()],
+    )?;
+    get_task(conn, id)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Recovered {
+    pub agent_runs: usize,
+    pub agent_tasks: usize,
+    pub members: usize,
+}
+
+/// A process cannot survive an application restart. Close Devin sessions
+/// left live by an interrupted session as failed, never as succeeded, and
+/// leave their checkout for human review.
+pub fn recover_interrupted(conn: &Connection) -> AppResult<Recovered> {
+    let now = time_util::now();
+    let agent_runs = conn.execute(
+        "UPDATE agent_runs SET status = 'failed', completed_at = ?1,
+             error_json = '{\"code\":\"INTERRUPTED\",\"message\":\"ShiftOps stopped before the Devin session finished.\"}'
+         WHERE status IN ('starting', 'running')",
+        [&now],
+    )?;
+    let members = conn.execute(
+        "UPDATE campaign_repositories SET status = 'failed', updated_at = ?1
+         WHERE status = 'in_progress'
+           AND id IN (SELECT campaign_repository_id FROM agent_tasks WHERE status IN ('queued', 'running'))",
+        [&now],
+    )?;
+    let agent_tasks = conn.execute(
+        "UPDATE agent_tasks SET status = CASE status WHEN 'queued' THEN 'pending' ELSE 'failed' END,
+             completed_at = CASE status WHEN 'queued' THEN completed_at ELSE ?1 END, updated_at = ?1
+         WHERE status IN ('queued', 'running')",
+        [&now],
+    )?;
+    Ok(Recovered {
+        agent_runs,
+        agent_tasks,
+        members,
     })
 }
 
@@ -130,8 +258,7 @@ pub fn create_task(conn: &Connection, new: &NewAgentTask) -> AppResult<AgentTask
     require_text(&new.instructions_markdown, "Instructions", 200_000)?;
     let id = new_id();
     let now = time_util::now();
-    let hash =
-        crate::scanner::files::hex(&sha2::Sha256::digest(new.instructions_markdown.as_bytes()));
+    let hash = instructions_digest(&new.instructions_markdown);
     conn.execute(
         "INSERT INTO agent_tasks (id, campaign_repository_id, provider, execution_mode, instructions_markdown,
              status, instructions_hash, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?7)",
@@ -416,6 +543,127 @@ pub(crate) mod tests {
             )
         })
         .unwrap()
+    }
+
+    #[test]
+    fn dispatch_claim_is_atomic_approval_gated_and_tamper_checked() {
+        let db = Database::open_in_memory();
+        let (_, member_id) = member(&db);
+        let t = task(&db, &member_id);
+        // Unapproved: refused.
+        assert!(db.write(|c| claim_for_dispatch(c, &t.id)).is_err());
+        db.write(|c| approve_task(c, &t.id)).unwrap();
+        let claimed = db.write(|c| claim_for_dispatch(c, &t.id)).unwrap();
+        assert_eq!(claimed.status, TaskStatus::Queued);
+        // A second dispatch of the same task loses the race.
+        let again = db.write(|c| claim_for_dispatch(c, &t.id)).unwrap_err();
+        assert!(again.message.contains("only a pending task"), "{again}");
+        // Releasing returns it to pending for a later attempt.
+        assert_eq!(
+            db.write(|c| release_claim(c, &t.id)).unwrap().status,
+            TaskStatus::Pending
+        );
+        // Instructions edited after approval no longer match the pinned hash.
+        db.write(|c| {
+            c.execute(
+                "UPDATE agent_tasks SET instructions_markdown = 'something else' WHERE id = ?1",
+                [&t.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let tampered = db.write(|c| claim_for_dispatch(c, &t.id)).unwrap_err();
+        assert!(tampered.message.contains("no longer match"));
+    }
+
+    #[test]
+    fn only_one_live_task_per_member() {
+        let db = Database::open_in_memory();
+        let (_, member_id) = member(&db);
+        let first = task(&db, &member_id);
+        let second = task(&db, &member_id);
+        for t in [&first, &second] {
+            db.write(|c| approve_task(c, &t.id)).unwrap();
+        }
+        db.write(|c| claim_for_dispatch(c, &first.id)).unwrap();
+        let err = db.write(|c| claim_for_dispatch(c, &second.id)).unwrap_err();
+        assert!(err.message.contains("already live"), "{err}");
+    }
+
+    #[test]
+    fn interrupted_sessions_recover_as_failed_never_succeeded() {
+        let db = Database::open_in_memory();
+        let (_, member_id) = member(&db);
+        let running = task(&db, &member_id);
+        db.write(|c| {
+            approve_task(c, &running.id)?;
+            claim_for_dispatch(c, &running.id)?;
+            set_task_status(c, &running.id, TaskStatus::Running)?;
+            start_run(c, &running.id, "devin", None, Some("proc-1"))?;
+            campaigns::set_member_status(c, &member_id, campaigns::MembershipStatus::InProgress)?;
+            Ok(())
+        })
+        .unwrap();
+        let recovered = db.write(|c| recover_interrupted(c)).unwrap();
+        assert_eq!(
+            recovered,
+            Recovered {
+                agent_runs: 1,
+                agent_tasks: 1,
+                members: 1
+            }
+        );
+        let t = db.read(|c| get_task(c, &running.id)).unwrap();
+        assert_eq!(t.status, TaskStatus::Failed);
+        let run = db
+            .read(|c| run_by_external_id(c, "proc-1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, RunStatus::Failed);
+        assert_eq!(run.error.unwrap()["code"], "INTERRUPTED");
+        let m = db.read(|c| campaigns::get_member(c, &member_id)).unwrap();
+        assert_eq!(m.status, campaigns::MembershipStatus::Failed);
+        assert_eq!(
+            db.write(|c| recover_interrupted(c)).unwrap(),
+            Recovered::default()
+        );
+    }
+
+    #[test]
+    fn repair_tasks_pin_their_plan_and_are_counted() {
+        let db = Database::open_in_memory();
+        let (_, member_id) = member(&db);
+        assert_eq!(db.read(|c| repair_attempts(c, &member_id)).unwrap(), 0);
+        let repair = db
+            .write(|c| {
+                let run = crate::db::verification::create_run(
+                    c,
+                    &crate::db::verification::NewVerificationRun {
+                        campaign_repository_id: member_id.clone(),
+                        agent_task_id: None,
+                        profile: "node".into(),
+                        verified_commit_sha: "abc".into(),
+                        plan_hash: Some("plan-hash".into()),
+                        trigger: crate::db::verification::RunTrigger::Manual,
+                    },
+                )?;
+                create_repair_task(
+                    c,
+                    &NewAgentTask {
+                        campaign_repository_id: member_id.clone(),
+                        provider: AgentProvider::Devin,
+                        execution_mode: ExecutionMode::LocalCli,
+                        instructions_markdown: "# ShiftOps repair task".into(),
+                    },
+                    &run.id,
+                    "plan-hash",
+                )
+            })
+            .unwrap();
+        assert_eq!(repair.task_kind, TaskKind::Repair);
+        assert_eq!(repair.verification_plan_hash.as_deref(), Some("plan-hash"));
+        assert_eq!(db.read(|c| repair_attempts(c, &member_id)).unwrap(), 1);
+        assert_eq!(task(&db, &member_id).task_kind, TaskKind::Migration);
     }
 
     #[test]

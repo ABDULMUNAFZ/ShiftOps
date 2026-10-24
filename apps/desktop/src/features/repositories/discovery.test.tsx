@@ -12,6 +12,7 @@ const native = vi.hoisted(() => ({
   listRepositoryRoots: vi.fn(),
   removeRepositoryRoot: vi.fn(),
   listRepositories: vi.fn(),
+  githubStatus: vi.fn(),
 }));
 const events = vi.hoisted(() => ({ handler: null as null | ((e: DiscoveryEvent) => void) }));
 vi.mock("../../lib/native", () => ({
@@ -73,6 +74,33 @@ beforeEach(() => {
   native.listRepositories.mockResolvedValue(emptyPage);
   native.getDiscovery.mockResolvedValue(null);
   native.startDiscovery.mockResolvedValue({ discoveryId: "d1" });
+});
+
+describe("Repository import actions", () => {
+  it("offers all five import actions and opens GitHub in the chosen mode", async () => {
+    native.githubStatus.mockResolvedValue({
+      host: "https://github.com/",
+      apiBaseUrl: "https://api.github.com/",
+      oauthConfigured: false,
+      account: null,
+      credentialStored: false,
+    });
+    renderWithClient(<RepositoriesPage />);
+    for (const name of [
+      "Open Local Repository",
+      "Discover Folder",
+      "GitHub Metadata Only",
+      "Clone into Managed Workspace",
+      "Link Existing Clone",
+    ]) {
+      expect(await screen.findByRole("button", { name: new RegExp(name) })).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", { name: /Clone into Managed Workspace/ }));
+    expect(await screen.findByText("GitHub is not connected")).toBeTruthy();
+    expect(screen.getAllByText("Clone into Managed Workspace").length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole("button", { name: /Clone into Managed Workspace/, pressed: true }));
+    await waitFor(() => expect(screen.queryByText("GitHub is not connected")).toBeNull());
+  });
 });
 
 describe("Repositories discovery", () => {
