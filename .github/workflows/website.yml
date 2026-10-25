@@ -1,0 +1,55 @@
+name: Website
+
+# Builds the static website and publishes it to the gh-pages branch, which
+# GitHub Pages serves at the custom domain in apps/website/public/CNAME.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/website/**"
+      - "packages/ui/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/website.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: website
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @shiftops/website test
+      - run: pnpm --filter @shiftops/website build
+      - name: Publish to gh-pages (a new commit; history is kept)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          out="$RUNNER_TEMP/site"
+          cp -R apps/website/out "$out"
+          if git fetch --depth=1 origin gh-pages; then
+            git worktree add "$RUNNER_TEMP/pages" FETCH_HEAD
+            cd "$RUNNER_TEMP/pages"
+            git switch -c gh-pages
+          else
+            git worktree add --orphan -b gh-pages "$RUNNER_TEMP/pages"
+            cd "$RUNNER_TEMP/pages"
+          fi
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R "$out"/. .
+          git add -A
+          if git diff --cached --quiet; then echo "No website changes."; exit 0; fi
+          git commit -m "Deploy website from ${GITHUB_SHA}"
+          git push origin gh-pages

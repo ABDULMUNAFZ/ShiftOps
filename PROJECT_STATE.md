@@ -22,7 +22,7 @@ Last updated: 2026-10-25 (IST). This file is the hand-off record: anyone (human 
 
 1. `cd ~/shiftops && git status && git log --oneline -10`, then confirm it matches §0.
 2. Read `AGENTS.md` (hard rules), this file, and the newest entries of `CHANGELOG.md`.
-3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 112 JS tests and 208 Rust tests passing, 3 ignored.
+3. Baseline: `source ~/.cargo/env && pnpm check && pnpm --filter @shiftops/website build && pnpm --filter @shiftops/desktop build`. Expected: 113 JS tests and 208 Rust tests passing, 3 ignored.
 4. Tasks 1–5 are complete; Task 6 is in progress (§8d). Do not start further Task 6 work without its specification.
 
 Environment on the development Mac:
@@ -180,7 +180,7 @@ Events: `shiftops://process`, `shiftops://discovery`, `shiftops://scan`, `shifto
 
 ## 7. Tests and verification (latest)
 
-- **JavaScript:** 112 tests — core 21, github 11, devin 2, verification 4, ui 3, website 3, desktop 68.
+- **JavaScript:** 113 tests — core 21, github 11, devin 2, verification 4, ui 3, website 4, desktop 68.
 - **Rust:** 208 passed, 3 ignored. The ignored ones are manual rehearsals:
   - `upgrade_rehearsal` with `SHIFTOPS_UPGRADE_DB`;
   - `scan_rehearsal` with `SHIFTOPS_SCAN_PATH`;
@@ -271,6 +271,14 @@ The working specification is the owner's "Complete Steps 5 and 6" prompt. Task 5
 - **Desktop UI:** rounded cards, pill buttons and badges in `@shiftops/ui`; a lime active navigation and larger brand block in the shell; larger page headers. Overview adds live counts and a "Get started" checklist driven by real data, and replaces a stale empty state. The Verification page shows status badges, profile, trigger and time.
 - **Docs:** README features, quick start, architecture and tests; `docs/USER_MANUAL.md`.
 - **Visual verification:** the website was rendered in headless Chrome at 1440 px and 500 px. The desktop UI was not rendered in Tauri: launching it would run the environment check that executes the `devin` binary (see the XProtect note) and would upgrade the real database. It is covered by component tests only.
+
+## 8f. Domain, hosting and releases (2026-10-25)
+
+- **Website hosting:** GitHub Pages, free, serving the `gh-pages` branch with custom domain `onlyhacks.tech` (Pages API: `build_type: legacy`, source `gh-pages`, `https_enforced: true`). Live at https://onlyhacks.tech. `.github/workflows/website.yml` redeploys from `main`.
+- **Domain:** `onlyhacks.tech` (Namify; nameservers `cont603385.*.orderbox-dns.com`). The owner added the GitHub Pages A, AAAA and `www` CNAME records on 2026-10-25. The Let's Encrypt certificate for `onlyhacks.tech` and `www.onlyhacks.tech` was approved (expires 2027-01-23, renewed by GitHub), and _Enforce HTTPS_ is on. Verified: every route returns 200 over HTTPS with a valid certificate, `http://` and `www` 301-redirect to `https://onlyhacks.tech/`, and unknown paths return 404. Verifying the domain in the GitHub account settings is still recommended.
+- **Vercel:** the CLI token on this machine is invalid, so Vercel was not used.
+- **Releases:** `.github/workflows/release.yml` (tag `v*`), unsigned, draft then pre-release only when all four platform builds succeed. Website links come only from `DESKTOP_RELEASE` in `apps/website/src/release.ts`.
+- **Signing:** none. Apple signing and notarization need a paid Developer Program membership and certificates; Windows signing needs a code-signing certificate. See `docs/RELEASING.md`.
 
 ## 9. Exact next step
 

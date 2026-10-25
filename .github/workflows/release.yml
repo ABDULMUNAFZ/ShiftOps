@@ -1,0 +1,93 @@
+name: Release
+
+# Builds unsigned desktop installers for macOS, Windows and Linux when a
+# version tag (v*) is pushed, uploads them to a draft GitHub Release, and
+# publishes that release as a pre-release only if every platform built.
+# No signing secrets are used; see docs/RELEASING.md.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - label: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - label: Windows x64
+            os: windows-latest
+            target: ""
+            args: ""
+          - label: Linux x64
+            os: ubuntu-22.04
+            target: ""
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: release-${{ matrix.target }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # tauri-apps/tauri-action action-v1.0.0, pinned by commit.
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: ${{ matrix.args }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ShiftOps ${{ github.ref_name }}
+          releaseBody: |
+            Unsigned pre-release builds of the ShiftOps desktop app.
+
+            - macOS builds are not signed or notarized. macOS Gatekeeper blocks them; build from source until signed builds are available.
+            - Windows builds are not code-signed. SmartScreen shows an "unknown publisher" warning.
+            - Linux builds: AppImage and .deb.
+
+            See https://onlyhacks.tech/download/ and docs/RELEASING.md.
+          releaseDraft: true
+          prerelease: true
+          uploadWorkflowArtifacts: true
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the draft only after every platform built
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
