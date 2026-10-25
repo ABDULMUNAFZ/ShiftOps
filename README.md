@@ -10,6 +10,11 @@ Repository: https://github.com/ABDULMUNAFZ/ShiftOps
 
 [![CI](https://github.com/ABDULMUNAFZ/ShiftOps/actions/workflows/ci.yml/badge.svg)](https://github.com/ABDULMUNAFZ/ShiftOps/actions/workflows/ci.yml)
 
+## Live demo
+
+- **Product walkthrough:** [Watch the ShiftOps demo on YouTube](https://youtu.be/eW9HyinLgos)
+- **Companion website:** [onlyhacks.tech](https://onlyhacks.tech)
+
 ShiftOps is an independent project built for Devin Hacks Kochi 2026. It is not an official Cognition product.
 
 ## Problem
